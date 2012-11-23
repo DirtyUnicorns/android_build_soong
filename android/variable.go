@@ -84,6 +84,10 @@ type variableProperties struct {
 			Cppflags []string
 		}
 
+		Needs_prelink_support struct {
+			Cppflags []string
+		}
+
 		// treble is true when a build is a Treble compliant device.  This is automatically set when
 		// a build is shipped with Android O, but can be overriden.  This controls such things as
 		// the sepolicy split and enabling the Treble linker namespaces.
@@ -163,6 +167,7 @@ type productVariables struct {
 	Pdk                        *bool `json:",omitempty"`
 	Uses_media_extensions      *bool `json:",omitempty"`
 	Has_legacy_mmap            *bool `json:",omitempty"`
+	Needs_prelink_support      *bool `json:",omitempty"`
 
 	IntegerOverflowExcludePaths *[]string `json:",omitempty"`
 
