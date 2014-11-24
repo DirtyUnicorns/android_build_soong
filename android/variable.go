@@ -126,6 +126,10 @@ type variableProperties struct {
 		Needs_prelink_support struct {
 			Cppflags []string
 		}
+
+		Needs_non_pie_support struct {
+			Cppflags []string
+		}
 	} `android:"arch_variant"`
 }
 
@@ -247,6 +251,7 @@ type productVariables struct {
 	Needs_text_relocations     *bool `json:",omitempty"`
 	Has_legacy_mmap            *bool `json:",omitempty"`
 	Needs_prelink_support      *bool `json:",omitempty"`
+	Needs_non_pie_support      *bool `json:",omitempty"`
 }
 
 func boolPtr(v bool) *bool {
