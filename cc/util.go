@@ -19,35 +19,39 @@ import (
 	"regexp"
 	"strings"
 
-	"android/soong/common"
+	"android/soong/android"
 )
 
 // Efficiently converts a list of include directories to a single string
 // of cflags with -I prepended to each directory.
-func includeDirsToFlags(dirs common.Paths) string {
-	return common.JoinWithPrefix(dirs.Strings(), "-I")
+func includeDirsToFlags(dirs android.Paths) string {
+	return android.JoinWithPrefix(dirs.Strings(), "-I")
 }
 
-func includeFilesToFlags(files common.Paths) string {
-	return common.JoinWithPrefix(files.Strings(), "-include ")
+func includeFilesToFlags(files android.Paths) string {
+	return android.JoinWithPrefix(files.Strings(), "-include ")
 }
 
 func ldDirsToFlags(dirs []string) string {
-	return common.JoinWithPrefix(dirs, "-L")
+	return android.JoinWithPrefix(dirs, "-L")
 }
 
 func libNamesToFlags(names []string) string {
-	return common.JoinWithPrefix(names, "-l")
+	return android.JoinWithPrefix(names, "-l")
 }
 
-func inList(s string, list []string) bool {
-	for _, l := range list {
+func indexList(s string, list []string) int {
+	for i, l := range list {
 		if l == s {
-			return true
+			return i
 		}
 	}
 
-	return false
+	return -1
+}
+
+func inList(s string, list []string) bool {
+	return indexList(s, list) != -1
 }
 
 func filterList(list []string, filter []string) (remainder []string, filtered []string) {
@@ -60,6 +64,15 @@ func filterList(list []string, filter []string) (remainder []string, filtered []
 	}
 
 	return
+}
+
+func removeFromList(s string, list []string) (bool, []string) {
+	i := indexList(s, list)
+	if i != -1 {
+		return true, append(list[:i], list[i+1:]...)
+	} else {
+		return false, list
+	}
 }
 
 var libNameRegexp = regexp.MustCompile(`^lib(.*)$`)
@@ -80,9 +93,19 @@ func flagsToBuilderFlags(in Flags) builderFlags {
 		conlyFlags:  strings.Join(in.ConlyFlags, " "),
 		cppFlags:    strings.Join(in.CppFlags, " "),
 		yaccFlags:   strings.Join(in.YaccFlags, " "),
+		protoFlags:  strings.Join(in.protoFlags, " "),
 		ldFlags:     strings.Join(in.LdFlags, " "),
-		nocrt:       in.Nocrt,
+		libFlags:    strings.Join(in.libFlags, " "),
+		tidyFlags:   strings.Join(in.TidyFlags, " "),
 		toolchain:   in.Toolchain,
 		clang:       in.Clang,
+		tidy:        in.Tidy,
 	}
+}
+
+func addPrefix(list []string, prefix string) []string {
+	for i := range list {
+		list[i] = prefix + list[i]
+	}
+	return list
 }

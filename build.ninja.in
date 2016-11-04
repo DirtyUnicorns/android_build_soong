@@ -7,17 +7,13 @@
 #
 #     bootstrap [from Go package github.com/google/blueprint/bootstrap]
 #
-ninja_required_version = 1.6.0
+ninja_required_version = 1.7.0
 
 g.bootstrap.buildDir = @@BuildDir@@
 
 g.bootstrap.BinDir = ${g.bootstrap.buildDir}/.bootstrap/bin
 
 g.bootstrap.bootstrapCmd = @@Bootstrap@@
-
-g.bootstrap.bootstrapManifest = @@BootstrapManifest@@
-
-g.bootstrap.chooseStageCmd = ${g.bootstrap.buildDir}/.bootstrap/bin/choosestage
 
 g.bootstrap.compileCmd = @@GoCompile@@
 
@@ -38,9 +34,11 @@ rule g.bootstrap.bootstrap
     description = bootstrap ${in}
     generator = true
 
-rule g.bootstrap.chooseStage
-    command = ${g.bootstrap.chooseStageCmd} --current ${current} --bootstrap ${g.bootstrap.bootstrapManifest} -o ${out} ${in}
-    description = choosing next stage
+rule g.bootstrap.build.ninja
+    command = ${builder} ${extra} -b ${g.bootstrap.buildDir} -d ${out}.d -o ${out} ${in}
+    depfile = ${out}.d
+    description = ${builder} ${out}
+    restat = true
 
 rule g.bootstrap.compile
     command = GOROOT='${g.bootstrap.goRoot}' ${g.bootstrap.compileCmd} -o ${out} -p ${pkgPath} -complete ${incFlags} -pack ${in}
@@ -72,6 +70,7 @@ rule g.bootstrap.test
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/github.com/google/blueprint.a $
         : g.bootstrap.compile ${g.bootstrap.srcDir}/build/blueprint/context.go $
+        ${g.bootstrap.srcDir}/build/blueprint/fs.go $
         ${g.bootstrap.srcDir}/build/blueprint/live_tracker.go $
         ${g.bootstrap.srcDir}/build/blueprint/mangle.go $
         ${g.bootstrap.srcDir}/build/blueprint/module_ctx.go $
@@ -86,7 +85,8 @@ build $
         ${g.bootstrap.srcDir}/build/blueprint/ninja_strings_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/ninja_writer_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/splice_modules_test.go $
-        ${g.bootstrap.srcDir}/build/blueprint/unpack_test.go | $
+        ${g.bootstrap.srcDir}/build/blueprint/unpack_test.go $
+        ${g.bootstrap.srcDir}/build/blueprint/visit_test.go | $
         ${g.bootstrap.compileCmd} $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/pkg/github.com/google/blueprint/parser.a $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/pkg/github.com/google/blueprint/pathtools.a $
@@ -102,7 +102,8 @@ build ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.go: $
         ${g.bootstrap.srcDir}/build/blueprint/ninja_strings_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/ninja_writer_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/splice_modules_test.go $
-        ${g.bootstrap.srcDir}/build/blueprint/unpack_test.go | $
+        ${g.bootstrap.srcDir}/build/blueprint/unpack_test.go $
+        ${g.bootstrap.srcDir}/build/blueprint/visit_test.go | $
         ${g.bootstrap.goTestMainCmd}
     pkg = github.com/google/blueprint
 default ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.go
@@ -125,7 +126,10 @@ default ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test
 build ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.passed: $
         g.bootstrap.test $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test | $
-        ${g.bootstrap.goTestRunnerCmd}
+        ${g.bootstrap.goTestRunnerCmd} || $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/test.passed $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/test/test.passed $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/test.passed
     pkg = github.com/google/blueprint
     pkgSrcDir = ${g.bootstrap.srcDir}/build/blueprint
 default ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.passed
@@ -133,6 +137,7 @@ default ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.passed
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint/pkg/github.com/google/blueprint.a $
         : g.bootstrap.compile ${g.bootstrap.srcDir}/build/blueprint/context.go $
+        ${g.bootstrap.srcDir}/build/blueprint/fs.go $
         ${g.bootstrap.srcDir}/build/blueprint/live_tracker.go $
         ${g.bootstrap.srcDir}/build/blueprint/mangle.go $
         ${g.bootstrap.srcDir}/build/blueprint/module_ctx.go $
@@ -146,8 +151,7 @@ build $
         ${g.bootstrap.compileCmd} $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/pkg/github.com/google/blueprint/parser.a $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/pkg/github.com/google/blueprint/pathtools.a $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/pkg/github.com/google/blueprint/proptools.a $
-        || ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.passed
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/pkg/github.com/google/blueprint/proptools.a
     incFlags = -I ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/pkg -I ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/pkg -I ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/pkg
     pkgPath = github.com/google/blueprint
 default $
@@ -158,7 +162,7 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:80:1
+# Defined: build/blueprint/Blueprints:85:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-bootstrap/pkg/github.com/google/blueprint/bootstrap.a $
@@ -186,7 +190,7 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:99:1
+# Defined: build/blueprint/Blueprints:104:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-bootstrap-bpdoc/pkg/github.com/google/blueprint/bootstrap/bpdoc.a $
@@ -207,7 +211,7 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:46:1
+# Defined: build/blueprint/Blueprints:49:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-deptools/pkg/github.com/google/blueprint/deptools.a $
@@ -223,11 +227,12 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:31:1
+# Defined: build/blueprint/Blueprints:33:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/github.com/google/blueprint/parser.a $
         : g.bootstrap.compile $
+        ${g.bootstrap.srcDir}/build/blueprint/parser/ast.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/modify.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/parser.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/printer.go $
@@ -274,12 +279,12 @@ default ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/test.passed
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/pkg/github.com/google/blueprint/parser.a $
         : g.bootstrap.compile $
+        ${g.bootstrap.srcDir}/build/blueprint/parser/ast.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/modify.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/parser.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/printer.go $
         ${g.bootstrap.srcDir}/build/blueprint/parser/sort.go | $
-        ${g.bootstrap.compileCmd} || $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/test.passed
+        ${g.bootstrap.compileCmd}
     pkgPath = github.com/google/blueprint/parser
 default $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/pkg/github.com/google/blueprint/parser.a
@@ -289,7 +294,7 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:52:1
+# Defined: build/blueprint/Blueprints:55:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/test/github.com/google/blueprint/pathtools.a $
@@ -339,8 +344,7 @@ build $
         : g.bootstrap.compile $
         ${g.bootstrap.srcDir}/build/blueprint/pathtools/lists.go $
         ${g.bootstrap.srcDir}/build/blueprint/pathtools/glob.go | $
-        ${g.bootstrap.compileCmd} || $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/test/test.passed
+        ${g.bootstrap.compileCmd}
     pkgPath = github.com/google/blueprint/pathtools
 default $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/pkg/github.com/google/blueprint/pathtools.a
@@ -350,16 +354,18 @@ default $
 # Variant:
 # Type:    bootstrap_go_package
 # Factory: github.com/google/blueprint/bootstrap.newGoPackageModuleFactory.func1
-# Defined: build/blueprint/Blueprints:64:1
+# Defined: build/blueprint/Blueprints:67:1
 
 build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/github.com/google/blueprint/proptools.a $
         : g.bootstrap.compile $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/clone.go $
+        ${g.bootstrap.srcDir}/build/blueprint/proptools/escape.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/extend.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/proptools.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/typeequal.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/clone_test.go $
+        ${g.bootstrap.srcDir}/build/blueprint/proptools/escape_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/extend_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/typeequal_test.go | $
         ${g.bootstrap.compileCmd}
@@ -370,6 +376,7 @@ default $
 build ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/test.go: $
         g.bootstrap.gotestmain $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/clone_test.go $
+        ${g.bootstrap.srcDir}/build/blueprint/proptools/escape_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/extend_test.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/typeequal_test.go | $
         ${g.bootstrap.goTestMainCmd}
@@ -405,45 +412,21 @@ build $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/pkg/github.com/google/blueprint/proptools.a $
         : g.bootstrap.compile $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/clone.go $
+        ${g.bootstrap.srcDir}/build/blueprint/proptools/escape.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/extend.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/proptools.go $
         ${g.bootstrap.srcDir}/build/blueprint/proptools/typeequal.go | $
-        ${g.bootstrap.compileCmd} || $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/test.passed
+        ${g.bootstrap.compileCmd}
     pkgPath = github.com/google/blueprint/proptools
 default $
         ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/pkg/github.com/google/blueprint/proptools.a
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# Module:  choosestage
-# Variant:
-# Type:    bootstrap_core_go_binary
-# Factory: github.com/google/blueprint/bootstrap.newGoBinaryModuleFactory.func1
-# Defined: build/blueprint/Blueprints:142:1
-
-build ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/choosestage.a: $
-        g.bootstrap.compile $
-        ${g.bootstrap.srcDir}/build/blueprint/choosestage/choosestage.go | $
-        ${g.bootstrap.compileCmd}
-    pkgPath = choosestage
-default ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/choosestage.a
-
-build ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/a.out: $
-        g.bootstrap.link $
-        ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/choosestage.a | $
-        ${g.bootstrap.linkCmd}
-default ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/a.out
-
-build ${g.bootstrap.BinDir}/choosestage: g.bootstrap.cp $
-        ${g.bootstrap.buildDir}/.bootstrap/choosestage/obj/a.out
-default ${g.bootstrap.BinDir}/choosestage
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Module:  gotestmain
 # Variant:
 # Type:    bootstrap_core_go_binary
 # Factory: github.com/google/blueprint/bootstrap.newGoBinaryModuleFactory.func1
-# Defined: build/blueprint/Blueprints:132:1
+# Defined: build/blueprint/Blueprints:137:1
 
 build ${g.bootstrap.buildDir}/.bootstrap/gotestmain/obj/gotestmain.a: $
         g.bootstrap.compile $
@@ -467,7 +450,7 @@ default ${g.bootstrap.BinDir}/gotestmain
 # Variant:
 # Type:    bootstrap_core_go_binary
 # Factory: github.com/google/blueprint/bootstrap.newGoBinaryModuleFactory.func1
-# Defined: build/blueprint/Blueprints:137:1
+# Defined: build/blueprint/Blueprints:142:1
 
 build ${g.bootstrap.buildDir}/.bootstrap/gotestrunner/obj/gotestrunner.a: $
         g.bootstrap.compile $
@@ -491,7 +474,7 @@ default ${g.bootstrap.BinDir}/gotestrunner
 # Variant:
 # Type:    bootstrap_core_go_binary
 # Factory: github.com/google/blueprint/bootstrap.newGoBinaryModuleFactory.func1
-# Defined: build/blueprint/Blueprints:111:1
+# Defined: build/blueprint/Blueprints:116:1
 
 build ${g.bootstrap.buildDir}/.bootstrap/minibp/obj/minibp.a: $
         g.bootstrap.compile $
@@ -515,61 +498,32 @@ build ${g.bootstrap.buildDir}/.bootstrap/minibp/obj/a.out: g.bootstrap.link $
 default ${g.bootstrap.buildDir}/.bootstrap/minibp/obj/a.out
 
 build ${g.bootstrap.BinDir}/minibp: g.bootstrap.cp $
-        ${g.bootstrap.buildDir}/.bootstrap/minibp/obj/a.out
+        ${g.bootstrap.buildDir}/.bootstrap/minibp/obj/a.out || $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/test.passed $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/test/test.passed $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/test.passed $
+        ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/test.passed
 default ${g.bootstrap.BinDir}/minibp
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Singleton: bootstrap
 # Factory:   github.com/google/blueprint/bootstrap.newSingletonFactory.func1
 
-rule s.bootstrap.primarybp
-    command = ${g.bootstrap.BinDir}/minibp --build-primary ${runTests} -m ${g.bootstrap.bootstrapManifest} --timestamp ${timestamp} --timestampdep ${timestampdep} -b ${g.bootstrap.buildDir} -d ${outfile}.d -o ${outfile} ${in}
-    depfile = ${outfile}.d
-    description = minibp ${outfile}
+build ${g.bootstrap.buildDir}/.bootstrap/build.ninja: g.bootstrap.build.ninja $
+        ${g.bootstrap.srcDir}/Android.bp | ${builder}
+    builder = ${g.bootstrap.BinDir}/minibp
+    extra = --build-primary -t
+default ${g.bootstrap.buildDir}/.bootstrap/build.ninja
 
-rule s.bootstrap.minibp
-    command = ${g.bootstrap.BinDir}/minibp ${runTests} -m ${g.bootstrap.bootstrapManifest} -b ${g.bootstrap.buildDir} -d ${out}.d -o ${out} ${in}
-    depfile = ${out}.d
-    description = minibp ${out}
-    generator = true
+build ${g.bootstrap.buildDir}/.minibootstrap/build.ninja.in: $
+        g.bootstrap.build.ninja ${g.bootstrap.srcDir}/Android.bp | ${builder}
+    builder = ${g.bootstrap.BinDir}/minibp
+    extra =  -t
+default ${g.bootstrap.buildDir}/.minibootstrap/build.ninja.in
 
-build ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in $
-        ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in.timestamp: $
-        s.bootstrap.primarybp ${g.bootstrap.srcDir}/Android.bp | $
-        ${g.bootstrap.BinDir}/choosestage ${g.bootstrap.BinDir}/gotestmain $
-        ${g.bootstrap.BinDir}/gotestrunner ${g.bootstrap.BinDir}/minibp $
-        ${g.bootstrap.srcDir}/Android.bp $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint/test/github.com/google/blueprint.a $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-parser/test/github.com/google/blueprint/parser.a $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-pathtools/test/github.com/google/blueprint/pathtools.a $
-        ${g.bootstrap.buildDir}/.bootstrap/blueprint-proptools/test/github.com/google/blueprint/proptools.a
-    outfile = ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in
-    runTests = -t
-    timestamp = ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in.timestamp
-    timestampdep = ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in.timestamp.d
-default ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in $
-        ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in.timestamp
-
-build ${g.bootstrap.buildDir}/.bootstrap/bootstrap.ninja.in: $
-        s.bootstrap.minibp ${g.bootstrap.srcDir}/Android.bp | $
-        ${g.bootstrap.bootstrapManifest} ${g.bootstrap.BinDir}/minibp
-    runTests = -t
-default ${g.bootstrap.buildDir}/.bootstrap/bootstrap.ninja.in
-
-build ${g.bootstrap.buildDir}/.bootstrap/notAFile: phony
-default ${g.bootstrap.buildDir}/.bootstrap/notAFile
-
-build ${g.bootstrap.buildDir}/.bootstrap/build.ninja.in: $
-        g.bootstrap.chooseStage $
-        ${g.bootstrap.buildDir}/.bootstrap/bootstrap.ninja.in $
-        ${g.bootstrap.buildDir}/.bootstrap/primary.ninja.in | $
-        ${g.bootstrap.chooseStageCmd} ${g.bootstrap.bootstrapManifest} $
-        ${g.bootstrap.buildDir}/.bootstrap/notAFile
-    current = ${g.bootstrap.buildDir}/.bootstrap/bootstrap.ninja.in
-default ${g.bootstrap.buildDir}/.bootstrap/build.ninja.in
-
-build ${g.bootstrap.buildDir}/build.ninja: g.bootstrap.bootstrap $
-        ${g.bootstrap.buildDir}/.bootstrap/build.ninja.in | $
+build ${g.bootstrap.buildDir}/.minibootstrap/build.ninja: $
+        g.bootstrap.bootstrap $
+        ${g.bootstrap.buildDir}/.minibootstrap/build.ninja.in | $
         ${g.bootstrap.bootstrapCmd}
-default ${g.bootstrap.buildDir}/build.ninja
+default ${g.bootstrap.buildDir}/.minibootstrap/build.ninja
 

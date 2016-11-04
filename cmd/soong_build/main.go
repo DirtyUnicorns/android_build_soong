@@ -22,9 +22,7 @@ import (
 
 	"github.com/google/blueprint/bootstrap"
 
-	"android/soong"
-
-	"android/soong/common"
+	"android/soong/android"
 )
 
 func main() {
@@ -33,9 +31,9 @@ func main() {
 	// The top-level Blueprints file is passed as the first argument.
 	srcDir := filepath.Dir(flag.Arg(0))
 
-	ctx := soong.NewContext()
+	ctx := android.NewContext()
 
-	configuration, err := common.NewConfig(srcDir, bootstrap.BuildDir)
+	configuration, err := android.NewConfig(srcDir, bootstrap.BuildDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err)
 		os.Exit(1)

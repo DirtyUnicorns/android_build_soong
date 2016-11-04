@@ -19,15 +19,16 @@ package cc
 // functions.
 
 import (
-	"android/soong/common"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strconv"
-
-	"path/filepath"
 	"strings"
 
 	"github.com/google/blueprint"
+
+	"android/soong/android"
+	"android/soong/cc/config"
 )
 
 const (
@@ -36,30 +37,30 @@ const (
 )
 
 var (
-	pctx = common.NewPackageContext("android/soong/cc")
+	pctx = android.NewPackageContext("android/soong/cc")
 
-	cc = pctx.StaticRule("cc",
+	cc = pctx.AndroidGomaStaticRule("cc",
 		blueprint.RuleParams{
 			Depfile:     "${out}.d",
 			Deps:        blueprint.DepsGCC,
-			Command:     "$relPwd $ccCmd -c $cFlags -MD -MF ${out}.d -o $out $in",
+			Command:     "$relPwd ${config.CcWrapper}$ccCmd -c $cFlags -MD -MF ${out}.d -o $out $in",
 			CommandDeps: []string{"$ccCmd"},
 			Description: "cc $out",
 		},
 		"ccCmd", "cFlags")
 
-	ld = pctx.StaticRule("ld",
+	ld = pctx.AndroidStaticRule("ld",
 		blueprint.RuleParams{
-			Command: "$ldCmd ${ldDirFlags} ${crtBegin} @${out}.rsp " +
+			Command: "$ldCmd ${crtBegin} @${out}.rsp " +
 				"${libFlags} ${crtEnd} -o ${out} ${ldFlags}",
 			CommandDeps:    []string{"$ldCmd"},
 			Description:    "ld $out",
 			Rspfile:        "${out}.rsp",
 			RspfileContent: "${in}",
 		},
-		"ldCmd", "ldDirFlags", "crtBegin", "libFlags", "crtEnd", "ldFlags")
+		"ldCmd", "crtBegin", "libFlags", "crtEnd", "ldFlags")
 
-	partialLd = pctx.StaticRule("partialLd",
+	partialLd = pctx.AndroidStaticRule("partialLd",
 		blueprint.RuleParams{
 			Command:     "$ldCmd -nostdlib -Wl,-r ${in} -o ${out} ${ldFlags}",
 			CommandDeps: []string{"$ldCmd"},
@@ -67,7 +68,7 @@ var (
 		},
 		"ldCmd", "ldFlags")
 
-	ar = pctx.StaticRule("ar",
+	ar = pctx.AndroidStaticRule("ar",
 		blueprint.RuleParams{
 			Command:        "rm -f ${out} && $arCmd $arFlags $out @${out}.rsp",
 			CommandDeps:    []string{"$arCmd"},
@@ -77,23 +78,30 @@ var (
 		},
 		"arCmd", "arFlags")
 
-	darwinAr = pctx.StaticRule("darwinAr",
+	darwinAr = pctx.AndroidStaticRule("darwinAr",
 		blueprint.RuleParams{
-			Command:     "rm -f ${out} && $arCmd $arFlags $out $in",
-			CommandDeps: []string{"$arCmd"},
+			Command:     "rm -f ${out} && ${config.MacArPath} $arFlags $out $in",
+			CommandDeps: []string{"${config.MacArPath}"},
 			Description: "ar $out",
 		},
-		"arCmd", "arFlags")
+		"arFlags")
 
-	darwinAppendAr = pctx.StaticRule("darwinAppendAr",
+	darwinAppendAr = pctx.AndroidStaticRule("darwinAppendAr",
 		blueprint.RuleParams{
-			Command:     "cp -f ${inAr} ${out}.tmp && $arCmd $arFlags ${out}.tmp $in && mv ${out}.tmp ${out}",
-			CommandDeps: []string{"$arCmd"},
+			Command:     "cp -f ${inAr} ${out}.tmp && ${config.MacArPath} $arFlags ${out}.tmp $in && mv ${out}.tmp ${out}",
+			CommandDeps: []string{"${config.MacArPath}", "${inAr}"},
 			Description: "ar $out",
 		},
-		"arCmd", "arFlags", "inAr")
+		"arFlags", "inAr")
 
-	prefixSymbols = pctx.StaticRule("prefixSymbols",
+	darwinStrip = pctx.AndroidStaticRule("darwinStrip",
+		blueprint.RuleParams{
+			Command:     "${config.MacStripPath} -u -r -o $out $in",
+			CommandDeps: []string{"${config.MacStripPath}"},
+			Description: "strip $out",
+		})
+
+	prefixSymbols = pctx.AndroidStaticRule("prefixSymbols",
 		blueprint.RuleParams{
 			Command:     "$objcopyCmd --prefix-symbols=${prefix} ${in} ${out}",
 			CommandDeps: []string{"$objcopyCmd"},
@@ -101,9 +109,27 @@ var (
 		},
 		"objcopyCmd", "prefix")
 
-	copyGccLibPath = pctx.SourcePathVariable("copyGccLibPath", "build/soong/copygcclib.sh")
+	stripPath = pctx.SourcePathVariable("stripPath", "build/soong/scripts/strip.sh")
 
-	copyGccLib = pctx.StaticRule("copyGccLib",
+	strip = pctx.AndroidStaticRule("strip",
+		blueprint.RuleParams{
+			Depfile:     "${out}.d",
+			Deps:        blueprint.DepsGCC,
+			Command:     "CROSS_COMPILE=$crossCompile $stripPath ${args} -i ${in} -o ${out} -d ${out}.d",
+			CommandDeps: []string{"$stripPath"},
+			Description: "strip $out",
+		},
+		"args", "crossCompile")
+
+	emptyFile = pctx.AndroidStaticRule("emptyFile",
+		blueprint.RuleParams{
+			Command:     "rm -f $out && touch $out",
+			Description: "empty file $out",
+		})
+
+	copyGccLibPath = pctx.SourcePathVariable("copyGccLibPath", "build/soong/scripts/copygcclib.sh")
+
+	copyGccLib = pctx.AndroidStaticRule("copyGccLib",
 		blueprint.RuleParams{
 			Depfile:     "${out}.d",
 			Deps:        blueprint.DepsGCC,
@@ -112,6 +138,26 @@ var (
 			Description: "copy gcc $out",
 		},
 		"ccCmd", "cFlags", "libName")
+
+	tocPath = pctx.SourcePathVariable("tocPath", "build/soong/scripts/toc.sh")
+
+	toc = pctx.AndroidStaticRule("toc",
+		blueprint.RuleParams{
+			Depfile:     "${out}.d",
+			Deps:        blueprint.DepsGCC,
+			Command:     "CROSS_COMPILE=$crossCompile $tocPath -i ${in} -o ${out} -d ${out}.d",
+			CommandDeps: []string{"$tocPath"},
+			Restat:      true,
+		},
+		"crossCompile")
+
+	clangTidy = pctx.AndroidStaticRule("clangTidy",
+		blueprint.RuleParams{
+			Command:     "rm -f $out && ${config.ClangBin}/clang-tidy $tidyFlags $in -- $cFlags && touch $out",
+			CommandDeps: []string{"${config.ClangBin}/clang-tidy"},
+			Description: "tidy $out",
+		},
+		"cFlags", "tidyFlags")
 )
 
 func init() {
@@ -133,42 +179,74 @@ type builderFlags struct {
 	conlyFlags  string
 	cppFlags    string
 	ldFlags     string
+	libFlags    string
 	yaccFlags   string
-	nocrt       bool
-	toolchain   Toolchain
+	protoFlags  string
+	tidyFlags   string
+	toolchain   config.Toolchain
 	clang       bool
+	tidy        bool
+
+	stripKeepSymbols       bool
+	stripKeepMiniDebugInfo bool
+	stripAddGnuDebuglink   bool
+}
+
+type Objects struct {
+	objFiles  android.Paths
+	tidyFiles android.Paths
+}
+
+func (a Objects) Copy() Objects {
+	return Objects{
+		objFiles:  append(android.Paths{}, a.objFiles...),
+		tidyFiles: append(android.Paths{}, a.tidyFiles...),
+	}
+}
+
+func (a Objects) Append(b Objects) Objects {
+	return Objects{
+		objFiles:  append(a.objFiles, b.objFiles...),
+		tidyFiles: append(a.tidyFiles, b.tidyFiles...),
+	}
 }
 
 // Generate rules for compiling multiple .c, .cpp, or .S files to individual .o files
-func TransformSourceToObj(ctx common.AndroidModuleContext, subdir string, srcFiles common.Paths,
-	flags builderFlags, deps common.Paths) (objFiles common.Paths) {
+func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles android.Paths,
+	flags builderFlags, deps android.Paths) Objects {
 
-	objFiles = make(common.Paths, len(srcFiles))
+	objFiles := make(android.Paths, len(srcFiles))
+	var tidyFiles android.Paths
+	if flags.tidy && flags.clang {
+		tidyFiles = make(android.Paths, 0, len(srcFiles))
+	}
 
 	cflags := flags.globalFlags + " " + flags.cFlags + " " + flags.conlyFlags
 	cppflags := flags.globalFlags + " " + flags.cFlags + " " + flags.cppFlags
 	asflags := flags.globalFlags + " " + flags.asFlags
 
 	if flags.clang {
-		cflags += " ${noOverrideClangGlobalCflags}"
-		cppflags += " ${noOverrideClangGlobalCflags}"
+		cflags += " ${config.NoOverrideClangGlobalCflags}"
+		cppflags += " ${config.NoOverrideClangGlobalCflags}"
 	} else {
-		cflags += " ${noOverrideGlobalCflags}"
-		cppflags += " ${noOverrideGlobalCflags}"
+		cflags += " ${config.NoOverrideGlobalCflags}"
+		cppflags += " ${config.NoOverrideGlobalCflags}"
 	}
 
 	for i, srcFile := range srcFiles {
-		objFile := common.ObjPathWithExt(ctx, srcFile, subdir, "o")
+		objFile := android.ObjPathWithExt(ctx, subdir, srcFile, "o")
 
 		objFiles[i] = objFile
 
 		var moduleCflags string
 		var ccCmd string
+		tidy := flags.tidy && flags.clang
 
 		switch srcFile.Ext() {
 		case ".S", ".s":
 			ccCmd = "gcc"
 			moduleCflags = asflags
+			tidy = false
 		case ".c":
 			ccCmd = "gcc"
 			moduleCflags = cflags
@@ -190,37 +268,60 @@ func TransformSourceToObj(ctx common.AndroidModuleContext, subdir string, srcFil
 				panic("unrecoginzied ccCmd")
 			}
 
-			ccCmd = "${clangPath}/" + ccCmd
+			ccCmd = "${config.ClangBin}/" + ccCmd
 		} else {
 			ccCmd = gccCmd(flags.toolchain, ccCmd)
 		}
 
-		ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+		ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 			Rule:      cc,
 			Output:    objFile,
 			Input:     srcFile,
-			Implicits: deps,
+			OrderOnly: deps,
 			Args: map[string]string{
 				"cFlags": moduleCflags,
 				"ccCmd":  ccCmd,
 			},
 		})
+
+		if tidy {
+			tidyFile := android.ObjPathWithExt(ctx, subdir, srcFile, "tidy")
+			tidyFiles = append(tidyFiles, tidyFile)
+
+			ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+				Rule:   clangTidy,
+				Output: tidyFile,
+				Input:  srcFile,
+				// We must depend on objFile, since clang-tidy doesn't
+				// support exporting dependencies.
+				Implicit: objFile,
+				Args: map[string]string{
+					"cFlags":    moduleCflags,
+					"tidyFlags": flags.tidyFlags,
+				},
+			})
+		}
+
 	}
 
-	return objFiles
+	return Objects{
+		objFiles:  objFiles,
+		tidyFiles: tidyFiles,
+	}
 }
 
 // Generate a rule for compiling multiple .o files to a static library (.a)
-func TransformObjToStaticLib(ctx common.AndroidModuleContext, objFiles common.Paths,
-	flags builderFlags, outputFile common.ModuleOutPath) {
+func TransformObjToStaticLib(ctx android.ModuleContext, objFiles android.Paths,
+	flags builderFlags, outputFile android.ModuleOutPath, deps android.Paths) {
 
 	arCmd := gccCmd(flags.toolchain, "ar")
 	arFlags := "crsPD"
 
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
-		Rule:   ar,
-		Output: outputFile,
-		Inputs: objFiles,
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+		Rule:      ar,
+		Output:    outputFile,
+		Inputs:    objFiles,
+		Implicits: deps,
 		Args: map[string]string{
 			"arFlags": arFlags,
 			"arCmd":   arCmd,
@@ -232,11 +333,42 @@ func TransformObjToStaticLib(ctx common.AndroidModuleContext, objFiles common.Pa
 // darwin.  The darwin ar tool doesn't support @file for list files, and has a
 // very small command line length limit, so we have to split the ar into multiple
 // steps, each appending to the previous one.
-func TransformDarwinObjToStaticLib(ctx common.AndroidModuleContext, objFiles common.Paths,
-	flags builderFlags, outputPath common.ModuleOutPath) {
+func TransformDarwinObjToStaticLib(ctx android.ModuleContext, objFiles android.Paths,
+	flags builderFlags, outputPath android.ModuleOutPath, deps android.Paths) {
 
-	arCmd := "${macArPath}"
 	arFlags := "cqs"
+
+	if len(objFiles) == 0 {
+		dummy := android.PathForModuleOut(ctx, "dummy"+objectExtension)
+		dummyAr := android.PathForModuleOut(ctx, "dummy"+staticLibraryExtension)
+
+		ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+			Rule:      emptyFile,
+			Output:    dummy,
+			Implicits: deps,
+		})
+
+		ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+			Rule:   darwinAr,
+			Output: dummyAr,
+			Input:  dummy,
+			Args: map[string]string{
+				"arFlags": arFlags,
+			},
+		})
+
+		ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+			Rule:   darwinAppendAr,
+			Output: outputPath,
+			Input:  dummy,
+			Args: map[string]string{
+				"arFlags": "d",
+				"inAr":    dummyAr.String(),
+			},
+		})
+
+		return
+	}
 
 	// ARG_MAX on darwin is 262144, use half that to be safe
 	objFilesLists, err := splitListForSize(objFiles.Strings(), 131072)
@@ -256,23 +388,21 @@ func TransformDarwinObjToStaticLib(ctx common.AndroidModuleContext, objFiles com
 
 		if in == "" {
 			ctx.Build(pctx, blueprint.BuildParams{
-				Rule:    darwinAr,
-				Outputs: []string{out},
-				Inputs:  l,
+				Rule:      darwinAr,
+				Outputs:   []string{out},
+				Inputs:    l,
+				Implicits: deps.Strings(),
 				Args: map[string]string{
 					"arFlags": arFlags,
-					"arCmd":   arCmd,
 				},
 			})
 		} else {
 			ctx.Build(pctx, blueprint.BuildParams{
-				Rule:      darwinAppendAr,
-				Outputs:   []string{out},
-				Inputs:    l,
-				Implicits: []string{in},
+				Rule:    darwinAppendAr,
+				Outputs: []string{out},
+				Inputs:  l,
 				Args: map[string]string{
 					"arFlags": arFlags,
-					"arCmd":   arCmd,
 					"inAr":    in,
 				},
 			})
@@ -282,23 +412,26 @@ func TransformDarwinObjToStaticLib(ctx common.AndroidModuleContext, objFiles com
 
 // Generate a rule for compiling multiple .o files, plus static libraries, whole static libraries,
 // and shared libraires, to a shared library (.so) or dynamic executable
-func TransformObjToDynamicBinary(ctx common.AndroidModuleContext,
-	objFiles, sharedLibs, staticLibs, lateStaticLibs, wholeStaticLibs, deps common.Paths,
-	crtBegin, crtEnd common.OptionalPath, groupLate bool, flags builderFlags, outputFile common.WritablePath) {
+func TransformObjToDynamicBinary(ctx android.ModuleContext,
+	objFiles, sharedLibs, staticLibs, lateStaticLibs, wholeStaticLibs, deps android.Paths,
+	crtBegin, crtEnd android.OptionalPath, groupLate bool, flags builderFlags, outputFile android.WritablePath) {
 
 	var ldCmd string
 	if flags.clang {
-		ldCmd = "${clangPath}/clang++"
+		ldCmd = "${config.ClangBin}/clang++"
 	} else {
 		ldCmd = gccCmd(flags.toolchain, "g++")
 	}
 
-	var ldDirs []string
 	var libFlagsList []string
+
+	if len(flags.libFlags) > 0 {
+		libFlagsList = append(libFlagsList, flags.libFlags)
+	}
 
 	if len(wholeStaticLibs) > 0 {
 		if ctx.Host() && ctx.Darwin() {
-			libFlagsList = append(libFlagsList, common.JoinWithPrefix(wholeStaticLibs.Strings(), "-force_load "))
+			libFlagsList = append(libFlagsList, android.JoinWithPrefix(wholeStaticLibs.Strings(), "-force_load "))
 		} else {
 			libFlagsList = append(libFlagsList, "-Wl,--whole-archive ")
 			libFlagsList = append(libFlagsList, wholeStaticLibs.Strings()...)
@@ -308,28 +441,18 @@ func TransformObjToDynamicBinary(ctx common.AndroidModuleContext,
 
 	libFlagsList = append(libFlagsList, staticLibs.Strings()...)
 
-	if groupLate && len(lateStaticLibs) > 0 {
+	if groupLate && !ctx.Darwin() && len(lateStaticLibs) > 0 {
 		libFlagsList = append(libFlagsList, "-Wl,--start-group")
 	}
 	libFlagsList = append(libFlagsList, lateStaticLibs.Strings()...)
-	if groupLate && len(lateStaticLibs) > 0 {
+	if groupLate && !ctx.Darwin() && len(lateStaticLibs) > 0 {
 		libFlagsList = append(libFlagsList, "-Wl,--end-group")
 	}
 
 	for _, lib := range sharedLibs {
-		dir, file := filepath.Split(lib.String())
-		if !strings.HasPrefix(file, "lib") {
-			panic("shared library " + lib.String() + " does not start with lib")
-		}
-		if !strings.HasSuffix(file, flags.toolchain.ShlibSuffix()) {
-			panic("shared library " + lib.String() + " does not end with " + flags.toolchain.ShlibSuffix())
-		}
-		libFlagsList = append(libFlagsList,
-			"-l"+strings.TrimSuffix(strings.TrimPrefix(file, "lib"), flags.toolchain.ShlibSuffix()))
-		ldDirs = append(ldDirs, dir)
+		libFlagsList = append(libFlagsList, lib.String())
 	}
 
-	deps = append(deps, sharedLibs...)
 	deps = append(deps, staticLibs...)
 	deps = append(deps, lateStaticLibs...)
 	deps = append(deps, wholeStaticLibs...)
@@ -337,34 +460,49 @@ func TransformObjToDynamicBinary(ctx common.AndroidModuleContext,
 		deps = append(deps, crtBegin.Path(), crtEnd.Path())
 	}
 
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:      ld,
 		Output:    outputFile,
 		Inputs:    objFiles,
 		Implicits: deps,
 		Args: map[string]string{
-			"ldCmd":      ldCmd,
-			"ldDirFlags": ldDirsToFlags(ldDirs),
-			"crtBegin":   crtBegin.String(),
-			"libFlags":   strings.Join(libFlagsList, " "),
-			"ldFlags":    flags.ldFlags,
-			"crtEnd":     crtEnd.String(),
+			"ldCmd":    ldCmd,
+			"crtBegin": crtBegin.String(),
+			"libFlags": strings.Join(libFlagsList, " "),
+			"ldFlags":  flags.ldFlags,
+			"crtEnd":   crtEnd.String(),
+		},
+	})
+}
+
+// Generate a rule for extract a table of contents from a shared library (.so)
+func TransformSharedObjectToToc(ctx android.ModuleContext, inputFile android.WritablePath,
+	outputFile android.WritablePath, flags builderFlags) {
+
+	crossCompile := gccCmd(flags.toolchain, "")
+
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+		Rule:   toc,
+		Output: outputFile,
+		Input:  inputFile,
+		Args: map[string]string{
+			"crossCompile": crossCompile,
 		},
 	})
 }
 
 // Generate a rule for compiling multiple .o files to a .o using ld partial linking
-func TransformObjsToObj(ctx common.AndroidModuleContext, objFiles common.Paths,
-	flags builderFlags, outputFile common.WritablePath) {
+func TransformObjsToObj(ctx android.ModuleContext, objFiles android.Paths,
+	flags builderFlags, outputFile android.WritablePath) {
 
 	var ldCmd string
 	if flags.clang {
-		ldCmd = "${clangPath}clang++"
+		ldCmd = "${config.ClangBin}/clang++"
 	} else {
 		ldCmd = gccCmd(flags.toolchain, "g++")
 	}
 
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:   partialLd,
 		Output: outputFile,
 		Inputs: objFiles,
@@ -376,12 +514,12 @@ func TransformObjsToObj(ctx common.AndroidModuleContext, objFiles common.Paths,
 }
 
 // Generate a rule for runing objcopy --prefix-symbols on a binary
-func TransformBinaryPrefixSymbols(ctx common.AndroidModuleContext, prefix string, inputFile common.Path,
-	flags builderFlags, outputFile common.WritablePath) {
+func TransformBinaryPrefixSymbols(ctx android.ModuleContext, prefix string, inputFile android.Path,
+	flags builderFlags, outputFile android.WritablePath) {
 
 	objcopyCmd := gccCmd(flags.toolchain, "objcopy")
 
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:   prefixSymbols,
 		Output: outputFile,
 		Input:  inputFile,
@@ -392,10 +530,46 @@ func TransformBinaryPrefixSymbols(ctx common.AndroidModuleContext, prefix string
 	})
 }
 
-func CopyGccLib(ctx common.AndroidModuleContext, libName string,
-	flags builderFlags, outputFile common.WritablePath) {
+func TransformStrip(ctx android.ModuleContext, inputFile android.Path,
+	outputFile android.WritablePath, flags builderFlags) {
 
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+	crossCompile := gccCmd(flags.toolchain, "")
+	args := ""
+	if flags.stripAddGnuDebuglink {
+		args += " --add-gnu-debuglink"
+	}
+	if flags.stripKeepMiniDebugInfo {
+		args += " --keep-mini-debug-info"
+	}
+	if flags.stripKeepSymbols {
+		args += " --keep-symbols"
+	}
+
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+		Rule:   strip,
+		Output: outputFile,
+		Input:  inputFile,
+		Args: map[string]string{
+			"crossCompile": crossCompile,
+			"args":         args,
+		},
+	})
+}
+
+func TransformDarwinStrip(ctx android.ModuleContext, inputFile android.Path,
+	outputFile android.WritablePath) {
+
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
+		Rule:   darwinStrip,
+		Output: outputFile,
+		Input:  inputFile,
+	})
+}
+
+func CopyGccLib(ctx android.ModuleContext, libName string,
+	flags builderFlags, outputFile android.WritablePath) {
+
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:   copyGccLib,
 		Output: outputFile,
 		Args: map[string]string{
@@ -406,7 +580,7 @@ func CopyGccLib(ctx common.AndroidModuleContext, libName string,
 	})
 }
 
-func gccCmd(toolchain Toolchain, cmd string) string {
+func gccCmd(toolchain config.Toolchain, cmd string) string {
 	return filepath.Join(toolchain.GccRoot(), "bin", toolchain.GccTriple()+"-"+cmd)
 }
 

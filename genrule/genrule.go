@@ -15,21 +15,20 @@
 package genrule
 
 import (
+	"os"
+
 	"github.com/google/blueprint"
 
-	"android/soong"
-	"android/soong/common"
+	"android/soong/android"
 )
 
 func init() {
-	soong.RegisterModuleType("gensrcs", GenSrcsFactory)
-	soong.RegisterModuleType("genrule", GenRuleFactory)
-
-	common.RegisterBottomUpMutator("genrule_deps", genruleDepsMutator)
+	android.RegisterModuleType("gensrcs", GenSrcsFactory)
+	android.RegisterModuleType("genrule", GenRuleFactory)
 }
 
 var (
-	pctx = common.NewPackageContext("android/soong/genrule")
+	pctx = android.NewPackageContext("android/soong/genrule")
 )
 
 func init() {
@@ -38,93 +37,144 @@ func init() {
 }
 
 type SourceFileGenerator interface {
-	GeneratedSourceFiles() common.Paths
+	GeneratedSourceFiles() android.Paths
+	GeneratedHeaderDir() android.Path
 }
 
 type HostToolProvider interface {
-	HostToolPath() common.OptionalPath
+	HostToolPath() android.OptionalPath
 }
 
 type generatorProperties struct {
 	// command to run on one or more input files.  Available variables for substitution:
+	// $tool: the path to the `tool` or `tool_file`
 	// $in: one or more input files
 	// $out: a single output file
 	// $srcDir: the root directory of the source tree
+	// $genDir: the sandbox directory for this tool; contains $out
 	// The host bin directory will be in the path
 	Cmd string
 
 	// name of the module (if any) that produces the host executable.   Leave empty for
 	// prebuilts or scripts that do not need a module to build them.
 	Tool string
+
+	// Local file that is used as the tool
+	Tool_file string
 }
 
 type generator struct {
-	common.AndroidModuleBase
+	android.ModuleBase
 
 	properties generatorProperties
 
 	tasks taskFunc
 
-	deps common.Paths
+	deps android.Paths
 	rule blueprint.Rule
 
-	outputFiles common.Paths
+	genPath android.Path
+
+	outputFiles android.Paths
 }
 
-type taskFunc func(ctx common.AndroidModuleContext) []generateTask
+type taskFunc func(ctx android.ModuleContext) []generateTask
 
 type generateTask struct {
-	in  common.Paths
-	out common.ModuleGenPath
+	in  android.Paths
+	out android.WritablePaths
 }
 
-func (g *generator) GeneratedSourceFiles() common.Paths {
+func (g *generator) GeneratedSourceFiles() android.Paths {
 	return g.outputFiles
 }
 
-func genruleDepsMutator(ctx common.AndroidBottomUpMutatorContext) {
+func (g *generator) GeneratedHeaderDir() android.Path {
+	return g.genPath
+}
+
+func (g *generator) DepsMutator(ctx android.BottomUpMutatorContext) {
 	if g, ok := ctx.Module().(*generator); ok {
 		if g.properties.Tool != "" {
 			ctx.AddFarVariationDependencies([]blueprint.Variation{
-				{"host_or_device", common.Host.String()},
-				{"host_type", common.CurrentHostType().String()},
-			}, g.properties.Tool)
+				{"arch", ctx.AConfig().BuildOsVariant},
+			}, nil, g.properties.Tool)
 		}
 	}
 }
 
-func (g *generator) GenerateAndroidBuildActions(ctx common.AndroidModuleContext) {
-	g.rule = ctx.Rule(pctx, "generator", blueprint.RuleParams{
-		Command: "PATH=$$PATH:$hostBin " + g.properties.Cmd,
+func (g *generator) GenerateAndroidBuildActions(ctx android.ModuleContext) {
+	if g.properties.Tool != "" && g.properties.Tool_file != "" {
+		ctx.ModuleErrorf("`tool` and `tool_file` may not be specified at the same time")
+		return
+	}
+
+	g.genPath = android.PathForModuleGen(ctx, "")
+
+	cmd := os.Expand(g.properties.Cmd, func(name string) string {
+		switch name {
+		case "$":
+			return "$$"
+		case "tool":
+			return "${tool}"
+		case "in":
+			return "${in}"
+		case "out":
+			return "${out}"
+		case "srcDir":
+			return "${srcDir}"
+		case "genDir":
+			return g.genPath.String()
+		default:
+			ctx.PropertyErrorf("cmd", "unknown variable '%s'", name)
+		}
+		return ""
 	})
 
-	ctx.VisitDirectDeps(func(module blueprint.Module) {
-		if t, ok := module.(HostToolProvider); ok {
-			p := t.HostToolPath()
-			if p.Valid() {
-				g.deps = append(g.deps, p.Path())
+	g.rule = ctx.Rule(pctx, "generator", blueprint.RuleParams{
+		Command: "PATH=$$PATH:$hostBin " + cmd,
+	}, "tool")
+
+	var tool string
+	if g.properties.Tool_file != "" {
+		toolpath := android.PathForModuleSrc(ctx, g.properties.Tool_file)
+		g.deps = append(g.deps, toolpath)
+		tool = toolpath.String()
+	} else if g.properties.Tool != "" {
+		ctx.VisitDirectDeps(func(module blueprint.Module) {
+			if t, ok := module.(HostToolProvider); ok {
+				p := t.HostToolPath()
+				if p.Valid() {
+					g.deps = append(g.deps, p.Path())
+					tool = p.String()
+				} else {
+					ctx.ModuleErrorf("host tool %q missing output file", ctx.OtherModuleName(module))
+				}
 			} else {
-				ctx.ModuleErrorf("host tool %q missing output file", ctx.OtherModuleName(module))
+				ctx.ModuleErrorf("unknown dependency %q", ctx.OtherModuleName(module))
 			}
-		} else {
-			ctx.ModuleErrorf("unknown dependency %q", ctx.OtherModuleName(module))
-		}
-	})
+		})
+	}
 
 	for _, task := range g.tasks(ctx) {
-		g.generateSourceFile(ctx, task)
+		g.generateSourceFile(ctx, task, tool)
 	}
 }
 
-func (g *generator) generateSourceFile(ctx common.AndroidModuleContext, task generateTask) {
-	ctx.ModuleBuild(pctx, common.ModuleBuildParams{
+func (g *generator) generateSourceFile(ctx android.ModuleContext, task generateTask, tool string) {
+	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:      g.rule,
-		Output:    task.out,
+		Outputs:   task.out,
 		Inputs:    task.in,
 		Implicits: g.deps,
+		Args: map[string]string{
+			"tool": tool,
+		},
 	})
 
-	g.outputFiles = append(g.outputFiles, task.out)
+	for _, outputFile := range task.out {
+		g.outputFiles = append(g.outputFiles, outputFile)
+	}
 }
 
 func generatorFactory(tasks taskFunc, props ...interface{}) (blueprint.Module, []interface{}) {
@@ -134,19 +184,19 @@ func generatorFactory(tasks taskFunc, props ...interface{}) (blueprint.Module, [
 
 	props = append(props, &module.properties)
 
-	return common.InitAndroidModule(module, props...)
+	return android.InitAndroidModule(module, props...)
 }
 
 func GenSrcsFactory() (blueprint.Module, []interface{}) {
 	properties := &genSrcsProperties{}
 
-	tasks := func(ctx common.AndroidModuleContext) []generateTask {
+	tasks := func(ctx android.ModuleContext) []generateTask {
 		srcFiles := ctx.ExpandSources(properties.Srcs, nil)
 		tasks := make([]generateTask, 0, len(srcFiles))
 		for _, in := range srcFiles {
 			tasks = append(tasks, generateTask{
-				in:  common.Paths{in},
-				out: common.GenPathWithExt(ctx, in, properties.Output_extension),
+				in:  android.Paths{in},
+				out: android.WritablePaths{android.GenPathWithExt(ctx, "", in, properties.Output_extension)},
 			})
 		}
 		return tasks
@@ -166,11 +216,15 @@ type genSrcsProperties struct {
 func GenRuleFactory() (blueprint.Module, []interface{}) {
 	properties := &genRuleProperties{}
 
-	tasks := func(ctx common.AndroidModuleContext) []generateTask {
+	tasks := func(ctx android.ModuleContext) []generateTask {
+		outs := make(android.WritablePaths, len(properties.Out))
+		for i, out := range properties.Out {
+			outs[i] = android.PathForModuleGen(ctx, out)
+		}
 		return []generateTask{
 			{
 				in:  ctx.ExpandSources(properties.Srcs, nil),
-				out: properties.Out,
+				out: outs,
 			},
 		}
 	}
@@ -182,6 +236,6 @@ type genRuleProperties struct {
 	// list of input files
 	Srcs []string
 
-	// name of the output file that will be generated
-	Out common.ModuleGenPath
+	// names of the output files that will be generated
+	Out []string
 }

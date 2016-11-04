@@ -16,52 +16,53 @@ import (
 // TODO: non-expanded variables with expressions
 
 type bpFile struct {
-	comments          []bpparser.Comment
+	comments          []*bpparser.CommentGroup
 	defs              []bpparser.Definition
 	localAssignments  map[string]*bpparser.Property
-	globalAssignments map[string]*bpparser.Value
+	globalAssignments map[string]*bpparser.Expression
 	scope             mkparser.Scope
 	module            *bpparser.Module
 
-	pos            scanner.Position
-	prevLine, line int
+	mkPos scanner.Position // Position of the last handled line in the makefile
+	bpPos scanner.Position // Position of the last emitted line to the blueprint file
 
 	inModule bool
 }
 
-func (f *bpFile) errorf(thing mkparser.MakeThing, s string, args ...interface{}) {
-	orig := thing.Dump()
-	s = fmt.Sprintf(s, args...)
-	f.comments = append(f.comments, bpparser.Comment{
-		Comment: []string{fmt.Sprintf("// ANDROIDMK TRANSLATION ERROR: %s", s)},
-		Pos:     f.pos,
+func (f *bpFile) insertComment(s string) {
+	f.comments = append(f.comments, &bpparser.CommentGroup{
+		Comments: []*bpparser.Comment{
+			&bpparser.Comment{
+				Comment: []string{s},
+				Slash:   f.bpPos,
+			},
+		},
 	})
+	f.bpPos.Offset += len(s)
+}
+
+func (f *bpFile) insertExtraComment(s string) {
+	f.insertComment(s)
+	f.bpPos.Line++
+}
+
+func (f *bpFile) errorf(node mkparser.Node, s string, args ...interface{}) {
+	orig := node.Dump()
+	s = fmt.Sprintf(s, args...)
+	f.insertExtraComment(fmt.Sprintf("// ANDROIDMK TRANSLATION ERROR: %s", s))
+
 	lines := strings.Split(orig, "\n")
 	for _, l := range lines {
-		f.incPos()
-		f.comments = append(f.comments, bpparser.Comment{
-			Comment: []string{"// " + l},
-			Pos:     f.pos,
-		})
+		f.insertExtraComment("// " + l)
 	}
 }
 
-func (f *bpFile) setPos(pos, endPos scanner.Position) {
-	f.pos = pos
-
-	f.line++
-	if f.pos.Line > f.prevLine+1 {
-		f.line++
+func (f *bpFile) setMkPos(pos, end scanner.Position) {
+	if pos.Line < f.mkPos.Line {
+		panic(fmt.Errorf("out of order lines, %q after %q", pos, f.mkPos))
 	}
-
-	f.pos.Line = f.line
-	f.prevLine = endPos.Line
-}
-
-func (f *bpFile) incPos() {
-	f.pos.Line++
-	f.line++
-	f.prevLine++
+	f.bpPos.Line += (pos.Line - f.mkPos.Line)
+	f.mkPos = end
 }
 
 type conditional struct {
@@ -76,52 +77,59 @@ func main() {
 		return
 	}
 
-	p := mkparser.NewParser(os.Args[1], bytes.NewBuffer(b))
-
-	things, errs := p.Parse()
+	output, errs := convertFile(os.Args[1], bytes.NewBuffer(b))
 	if len(errs) > 0 {
 		for _, err := range errs {
-			fmt.Println("ERROR: ", err)
+			fmt.Fprintln(os.Stderr, "ERROR: ", err)
 		}
-		return
+		os.Exit(1)
+	}
+
+	fmt.Print(output)
+}
+
+func convertFile(filename string, buffer *bytes.Buffer) (string, []error) {
+	p := mkparser.NewParser(filename, buffer)
+
+	nodes, errs := p.Parse()
+	if len(errs) > 0 {
+		return "", errs
 	}
 
 	file := &bpFile{
 		scope:             androidScope(),
 		localAssignments:  make(map[string]*bpparser.Property),
-		globalAssignments: make(map[string]*bpparser.Value),
+		globalAssignments: make(map[string]*bpparser.Expression),
 	}
 
 	var conds []*conditional
 	var assignmentCond *conditional
 
-	for _, t := range things {
-		file.setPos(t.Pos(), t.EndPos())
+	for _, node := range nodes {
+		file.setMkPos(p.Unpack(node.Pos()), p.Unpack(node.End()))
 
-		if comment, ok := t.AsComment(); ok {
-			file.comments = append(file.comments, bpparser.Comment{
-				Pos:     file.pos,
-				Comment: []string{"//" + comment.Comment},
-			})
-		} else if assignment, ok := t.AsAssignment(); ok {
-			handleAssignment(file, assignment, assignmentCond)
-		} else if directive, ok := t.AsDirective(); ok {
-			switch directive.Name {
+		switch x := node.(type) {
+		case *mkparser.Comment:
+			file.insertComment("//" + x.Comment)
+		case *mkparser.Assignment:
+			handleAssignment(file, x, assignmentCond)
+		case *mkparser.Directive:
+			switch x.Name {
 			case "include":
-				val := directive.Args.Value(file.scope)
+				val := x.Args.Value(file.scope)
 				switch {
 				case soongModuleTypes[val]:
-					handleModuleConditionals(file, directive, conds)
+					handleModuleConditionals(file, x, conds)
 					makeModule(file, val)
 				case val == clear_vars:
 					resetModule(file)
 				default:
-					file.errorf(directive, "unsupported include")
+					file.errorf(x, "unsupported include")
 					continue
 				}
 			case "ifeq", "ifneq", "ifdef", "ifndef":
-				args := directive.Args.Dump()
-				eq := directive.Name == "ifeq" || directive.Name == "ifdef"
+				args := x.Args.Dump()
+				eq := x.Name == "ifeq" || x.Name == "ifdef"
 				if _, ok := conditionalTranslations[args]; ok {
 					newCond := conditional{args, eq}
 					conds = append(conds, &newCond)
@@ -129,29 +137,29 @@ func main() {
 						if assignmentCond == nil {
 							assignmentCond = &newCond
 						} else {
-							file.errorf(directive, "unsupported nested conditional in module")
+							file.errorf(x, "unsupported nested conditional in module")
 						}
 					}
 				} else {
-					file.errorf(directive, "unsupported conditional")
+					file.errorf(x, "unsupported conditional")
 					conds = append(conds, nil)
 					continue
 				}
 			case "else":
 				if len(conds) == 0 {
-					file.errorf(directive, "missing if before else")
+					file.errorf(x, "missing if before else")
 					continue
 				} else if conds[len(conds)-1] == nil {
-					file.errorf(directive, "else from unsupported contitional")
+					file.errorf(x, "else from unsupported contitional")
 					continue
 				}
 				conds[len(conds)-1].eq = !conds[len(conds)-1].eq
 			case "endif":
 				if len(conds) == 0 {
-					file.errorf(directive, "missing if before endif")
+					file.errorf(x, "missing if before endif")
 					continue
 				} else if conds[len(conds)-1] == nil {
-					file.errorf(directive, "endif from unsupported contitional")
+					file.errorf(x, "endif from unsupported contitional")
 					conds = conds[:len(conds)-1]
 				} else {
 					if assignmentCond == conds[len(conds)-1] {
@@ -160,11 +168,11 @@ func main() {
 					conds = conds[:len(conds)-1]
 				}
 			default:
-				file.errorf(directive, "unsupported directive")
+				file.errorf(x, "unsupported directive")
 				continue
 			}
-		} else {
-			file.errorf(t, "unsupported line")
+		default:
+			file.errorf(x, "unsupported line")
 		}
 	}
 
@@ -173,14 +181,13 @@ func main() {
 		Comments: file.comments,
 	})
 	if err != nil {
-		fmt.Println(err)
-		return
+		return "", []error{err}
 	}
 
-	fmt.Print(string(out))
+	return string(out), nil
 }
 
-func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *conditional) {
+func handleAssignment(file *bpFile, assignment *mkparser.Assignment, c *conditional) {
 	if !assignment.Name.Const() {
 		file.errorf(assignment, "unsupported non-const variable name")
 		return
@@ -195,10 +202,10 @@ func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *condition
 	prefix := ""
 
 	if strings.HasPrefix(name, "LOCAL_") {
-		for k, v := range propertyPrefixes {
-			if strings.HasSuffix(name, "_"+k) {
-				name = strings.TrimSuffix(name, "_"+k)
-				prefix = v
+		for _, x := range propertyPrefixes {
+			if strings.HasSuffix(name, "_"+x.mk) {
+				name = strings.TrimSuffix(name, "_"+x.mk)
+				prefix = x.bp
 				break
 			}
 		}
@@ -227,8 +234,8 @@ func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *condition
 
 	var err error
 	if prop, ok := standardProperties[name]; ok {
-		var val *bpparser.Value
-		val, err = makeVariableToBlueprint(file, assignment.Value, prop.ValueType)
+		var val bpparser.Expression
+		val, err = makeVariableToBlueprint(file, assignment.Value, prop.Type)
 		if err == nil {
 			err = setVariable(file, appendVariable, prefix, prop.string, val, true)
 		}
@@ -244,7 +251,7 @@ func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *condition
 			// This is a hack to get the LOCAL_ARM_MODE value inside
 			// of an arch: { arm: {} } block.
 			armModeAssign := assignment
-			armModeAssign.Name = mkparser.SimpleMakeString("LOCAL_ARM_MODE_HACK_arm", assignment.Name.Pos)
+			armModeAssign.Name = mkparser.SimpleMakeString("LOCAL_ARM_MODE_HACK_arm", assignment.Name.Pos())
 			handleAssignment(file, armModeAssign, c)
 		case name == "LOCAL_ADDITIONAL_DEPENDENCIES":
 			// TODO: check for only .mk files?
@@ -252,8 +259,8 @@ func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *condition
 			file.errorf(assignment, "unsupported assignment to %s", name)
 			return
 		default:
-			var val *bpparser.Value
-			val, err = makeVariableToBlueprint(file, assignment.Value, bpparser.List)
+			var val bpparser.Expression
+			val, err = makeVariableToBlueprint(file, assignment.Value, bpparser.ListType)
 			err = setVariable(file, appendVariable, prefix, name, val, false)
 		}
 	}
@@ -262,7 +269,7 @@ func handleAssignment(file *bpFile, assignment mkparser.Assignment, c *condition
 	}
 }
 
-func handleModuleConditionals(file *bpFile, directive mkparser.Directive, conds []*conditional) {
+func handleModuleConditionals(file *bpFile, directive *mkparser.Directive, conds []*conditional) {
 	for _, c := range conds {
 		if c == nil {
 			continue
@@ -275,7 +282,7 @@ func handleModuleConditionals(file *bpFile, directive mkparser.Directive, conds 
 		disabledPrefix := conditionalTranslations[c.cond][!c.eq]
 
 		// Create a fake assignment with enabled = false
-		val, err := makeVariableToBlueprint(file, mkparser.SimpleMakeString("false", file.pos), bpparser.Bool)
+		val, err := makeVariableToBlueprint(file, mkparser.SimpleMakeString("false", mkparser.NoPos), bpparser.BoolType)
 		if err == nil {
 			err = setVariable(file, false, disabledPrefix, "enabled", val, true)
 		}
@@ -286,33 +293,31 @@ func handleModuleConditionals(file *bpFile, directive mkparser.Directive, conds 
 }
 
 func makeModule(file *bpFile, t string) {
-	file.module.Type = bpparser.Ident{
-		Name: t,
-		Pos:  file.module.LbracePos,
-	}
-	file.module.RbracePos = file.pos
+	file.module.Type = t
+	file.module.TypePos = file.module.LBracePos
+	file.module.RBracePos = file.bpPos
 	file.defs = append(file.defs, file.module)
 	file.inModule = false
 }
 
 func resetModule(file *bpFile) {
 	file.module = &bpparser.Module{}
-	file.module.LbracePos = file.pos
+	file.module.LBracePos = file.bpPos
 	file.localAssignments = make(map[string]*bpparser.Property)
 	file.inModule = true
 }
 
 func makeVariableToBlueprint(file *bpFile, val *mkparser.MakeString,
-	typ bpparser.ValueType) (*bpparser.Value, error) {
+	typ bpparser.Type) (bpparser.Expression, error) {
 
-	var exp *bpparser.Value
+	var exp bpparser.Expression
 	var err error
 	switch typ {
-	case bpparser.List:
+	case bpparser.ListType:
 		exp, err = makeToListExpression(val, file.scope)
-	case bpparser.String:
+	case bpparser.StringType:
 		exp, err = makeToStringExpression(val, file.scope)
-	case bpparser.Bool:
+	case bpparser.BoolType:
 		exp, err = makeToBoolExpression(val)
 	default:
 		panic("unknown type")
@@ -325,15 +330,15 @@ func makeVariableToBlueprint(file *bpFile, val *mkparser.MakeString,
 	return exp, nil
 }
 
-func setVariable(file *bpFile, plusequals bool, prefix, name string, value *bpparser.Value, local bool) error {
+func setVariable(file *bpFile, plusequals bool, prefix, name string, value bpparser.Expression, local bool) error {
 
 	if prefix != "" {
 		name = prefix + "." + name
 	}
 
-	pos := file.pos
+	pos := file.bpPos
 
-	var oldValue *bpparser.Value
+	var oldValue *bpparser.Expression
 	if local {
 		oldProp := file.localAssignments[name]
 		if oldProp != nil {
@@ -345,12 +350,12 @@ func setVariable(file *bpFile, plusequals bool, prefix, name string, value *bppa
 
 	if local {
 		if oldValue != nil && plusequals {
-			val, err := addValues(oldValue, value)
+			val, err := addValues(*oldValue, value)
 			if err != nil {
 				return fmt.Errorf("unsupported addition: %s", err.Error())
 			}
-			val.Expression.Pos = pos
-			*oldValue = *val
+			val.(*bpparser.Operator).OperatorPos = pos
+			*oldValue = val
 		} else {
 			names := strings.Split(name, ".")
 			container := &file.module.Properties
@@ -360,23 +365,22 @@ func setVariable(file *bpFile, plusequals bool, prefix, name string, value *bppa
 				prop := file.localAssignments[fqn]
 				if prop == nil {
 					prop = &bpparser.Property{
-						Name: bpparser.Ident{Name: n, Pos: pos},
-						Pos:  pos,
-						Value: bpparser.Value{
-							Type:     bpparser.Map,
-							MapValue: []*bpparser.Property{},
+						Name:    n,
+						NamePos: pos,
+						Value: &bpparser.Map{
+							Properties: []*bpparser.Property{},
 						},
 					}
 					file.localAssignments[fqn] = prop
 					*container = append(*container, prop)
 				}
-				container = &prop.Value.MapValue
+				container = &prop.Value.(*bpparser.Map).Properties
 			}
 
 			prop := &bpparser.Property{
-				Name:  bpparser.Ident{Name: names[len(names)-1], Pos: pos},
-				Pos:   pos,
-				Value: *value,
+				Name:    names[len(names)-1],
+				NamePos: pos,
+				Value:   value,
 			}
 			file.localAssignments[name] = prop
 			*container = append(*container, prop)
@@ -384,31 +388,26 @@ func setVariable(file *bpFile, plusequals bool, prefix, name string, value *bppa
 	} else {
 		if oldValue != nil && plusequals {
 			a := &bpparser.Assignment{
-				Name: bpparser.Ident{
-					Name: name,
-					Pos:  pos,
-				},
-				Value:     *value,
-				OrigValue: *value,
-				Pos:       pos,
+				Name:      name,
+				NamePos:   pos,
+				Value:     value,
+				OrigValue: value,
+				EqualsPos: pos,
 				Assigner:  "+=",
 			}
 			file.defs = append(file.defs, a)
 		} else {
 			a := &bpparser.Assignment{
-				Name: bpparser.Ident{
-					Name: name,
-					Pos:  pos,
-				},
-				Value:     *value,
-				OrigValue: *value,
-				Pos:       pos,
+				Name:      name,
+				NamePos:   pos,
+				Value:     value,
+				OrigValue: value,
+				EqualsPos: pos,
 				Assigner:  "=",
 			}
 			file.globalAssignments[name] = &a.Value
 			file.defs = append(file.defs, a)
 		}
 	}
-
 	return nil
 }
