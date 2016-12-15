@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"android/soong/android"
@@ -59,6 +58,9 @@ func (c *Module) AndroidMk() (ret android.AndroidMkData, err error) {
 		}
 		if c.Target().Os == android.Android && c.Properties.Sdk_version != "" {
 			fmt.Fprintln(w, "LOCAL_SDK_VERSION := "+c.Properties.Sdk_version)
+			fmt.Fprintln(w, "LOCAL_NDK_STL_VARIANT := none")
+		} else if c.Target().Os == android.Android && c.Properties.Use_vndk {
+			fmt.Fprintln(w, "LOCAL_USE_VNDK := true")
 			fmt.Fprintln(w, "LOCAL_NDK_STL_VARIANT := none")
 		} else {
 			// These are already included in LOCAL_SHARED_LIBRARIES
@@ -138,6 +140,11 @@ func (binary *binaryDecorator) AndroidMk(ctx AndroidMkContext, ret *android.Andr
 		if Bool(binary.Properties.Static_executable) {
 			fmt.Fprintln(w, "LOCAL_FORCE_STATIC_EXECUTABLE := true")
 		}
+
+		if len(binary.symlinks) > 0 {
+			fmt.Fprintln(w, "LOCAL_MODULE_SYMLINKS := "+strings.Join(binary.symlinks, " "))
+		}
+
 		return nil
 	})
 }
@@ -209,15 +216,12 @@ func (installer *baseInstaller) AndroidMk(ctx AndroidMkContext, ret *android.And
 		fmt.Fprintln(w, "LOCAL_MODULE_SUFFIX := "+filepath.Ext(file))
 		fmt.Fprintln(w, "LOCAL_MODULE_PATH := $(OUT_DIR)/"+filepath.Clean(dir))
 		fmt.Fprintln(w, "LOCAL_MODULE_STEM := "+stem)
-		if len(installer.Properties.Symlinks) > 0 {
-			fmt.Fprintln(w, "LOCAL_MODULE_SYMLINKS := "+strings.Join(installer.Properties.Symlinks, " "))
-		}
 		return nil
 	})
 }
 
 func (c *stubDecorator) AndroidMk(ctx AndroidMkContext, ret *android.AndroidMkData) {
-	ret.SubName = "." + strconv.Itoa(c.properties.ApiLevel)
+	ret.SubName = "." + c.properties.ApiLevel
 	ret.Class = "SHARED_LIBRARIES"
 
 	ret.Extra = append(ret.Extra, func(w io.Writer, outputFile android.Path) error {

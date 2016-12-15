@@ -87,6 +87,15 @@ type BaseCompilerProperties struct {
 	// if set to false, use -std=c++* instead of -std=gnu++*
 	Gnu_extensions *bool
 
+	Aidl struct {
+		// list of directories that will be added to the aidl include paths.
+		Include_dirs []string
+
+		// list of directories relative to the Blueprints file that will
+		// be added to the aidl include paths.
+		Local_include_dirs []string
+	}
+
 	Debug, Release struct {
 		// list of module-specific flags that will be used for C and C++ compiles in debug or
 		// release builds
@@ -115,12 +124,12 @@ func (compiler *baseCompiler) appendAsflags(flags []string) {
 }
 
 func (compiler *baseCompiler) compilerProps() []interface{} {
-	return []interface{}{&compiler.Properties}
+	return []interface{}{&compiler.Properties, &compiler.Proto}
 }
 
 func (compiler *baseCompiler) compilerInit(ctx BaseModuleContext) {}
 
-func (compiler *baseCompiler) compilerDeps(ctx BaseModuleContext, deps Deps) Deps {
+func (compiler *baseCompiler) compilerDeps(ctx DepsContext, deps Deps) Deps {
 	deps.GeneratedSources = append(deps.GeneratedSources, compiler.Properties.Generated_sources...)
 	deps.GeneratedHeaders = append(deps.GeneratedHeaders, compiler.Properties.Generated_headers...)
 
@@ -147,17 +156,21 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 	flags.CppFlags = append(flags.CppFlags, esc(compiler.Properties.Cppflags)...)
 	flags.ConlyFlags = append(flags.ConlyFlags, esc(compiler.Properties.Conlyflags)...)
 	flags.AsFlags = append(flags.AsFlags, esc(compiler.Properties.Asflags)...)
+	flags.YasmFlags = append(flags.YasmFlags, esc(compiler.Properties.Asflags)...)
 	flags.YaccFlags = append(flags.YaccFlags, esc(compiler.Properties.Yaccflags)...)
 
 	// Include dir cflags
-	rootIncludeDirs := android.PathsForSource(ctx, compiler.Properties.Include_dirs)
 	localIncludeDirs := android.PathsForModuleSrc(ctx, compiler.Properties.Local_include_dirs)
-	flags.GlobalFlags = append(flags.GlobalFlags,
-		includeDirsToFlags(localIncludeDirs),
-		includeDirsToFlags(rootIncludeDirs))
+	if len(localIncludeDirs) > 0 {
+		flags.GlobalFlags = append(flags.GlobalFlags, includeDirsToFlags(localIncludeDirs))
+	}
+	rootIncludeDirs := android.PathsForSource(ctx, compiler.Properties.Include_dirs)
+	if len(rootIncludeDirs) > 0 {
+		flags.GlobalFlags = append(flags.GlobalFlags, includeDirsToFlags(rootIncludeDirs))
+	}
 
 	if !ctx.noDefaultCompilerFlags() {
-		if !ctx.sdk() || ctx.Host() {
+		if !(ctx.sdk() || ctx.vndk()) || ctx.Host() {
 			flags.GlobalFlags = append(flags.GlobalFlags,
 				"${config.CommonGlobalIncludes}",
 				"${config.CommonGlobalSystemIncludes}",
@@ -168,7 +181,7 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 		flags.GlobalFlags = append(flags.GlobalFlags, "-I"+android.PathForModuleSrc(ctx).String())
 	}
 
-	if ctx.sdk() {
+	if ctx.sdk() || ctx.vndk() {
 		// The NDK headers are installed to a common sysroot. While a more
 		// typical Soong approach would be to only make the headers for the
 		// library you're using available, we're trying to emulate the NDK
@@ -180,8 +193,12 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 		// Traditionally this has come from android/api-level.h, but with the
 		// libc headers unified it must be set by the build system since we
 		// don't have per-API level copies of that header now.
+		version := ctx.sdkVersion()
+		if version == "current" {
+			version = "__ANDROID_API_FUTURE__"
+		}
 		flags.GlobalFlags = append(flags.GlobalFlags,
-			"-D__ANDROID_API__="+ctx.sdkVersion())
+			"-D__ANDROID_API__="+version)
 
 		// Until the full NDK has been migrated to using ndk_headers, we still
 		// need to add the legacy sysroot includes to get the full set of
@@ -238,17 +255,17 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 
 	if !ctx.noDefaultCompilerFlags() {
 		flags.GlobalFlags = append(flags.GlobalFlags, instructionSetFlags)
-		flags.ConlyFlags = append(flags.ConlyFlags, "${config.CommonGlobalConlyflags}")
+		flags.ConlyFlags = append([]string{"${config.CommonGlobalConlyflags}"}, flags.ConlyFlags...)
 
 		if flags.Clang {
 			flags.AsFlags = append(flags.AsFlags, tc.ClangAsflags())
-			flags.CppFlags = append(flags.CppFlags, "${config.CommonClangGlobalCppflags}")
+			flags.CppFlags = append([]string{"${config.CommonClangGlobalCppflags}"}, flags.CppFlags...)
 			flags.GlobalFlags = append(flags.GlobalFlags,
 				tc.ClangCflags(),
 				"${config.CommonClangGlobalCflags}",
 				fmt.Sprintf("${config.%sClangGlobalCflags}", hod))
 		} else {
-			flags.CppFlags = append(flags.CppFlags, "${config.CommonGlobalCppflags}")
+			flags.CppFlags = append([]string{"${config.CommonGlobalCppflags}"}, flags.CppFlags...)
 			flags.GlobalFlags = append(flags.GlobalFlags,
 				tc.Cflags(),
 				"${config.CommonGlobalCflags}",
@@ -274,6 +291,8 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 		} else {
 			flags.CppFlags = append(flags.CppFlags, tc.Cppflags())
 		}
+
+		flags.YasmFlags = append(flags.YasmFlags, tc.YasmFlags())
 	}
 
 	if flags.Clang {
@@ -331,6 +350,20 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 			"-I"+android.PathForModuleGen(ctx, "yacc", ctx.ModuleDir()).String())
 	}
 
+	if compiler.hasSrcExt(".aidl") {
+		if len(compiler.Properties.Aidl.Local_include_dirs) > 0 {
+			localAidlIncludeDirs := android.PathsForModuleSrc(ctx, compiler.Properties.Aidl.Local_include_dirs)
+			flags.aidlFlags = append(flags.aidlFlags, includeDirsToFlags(localAidlIncludeDirs))
+		}
+		if len(compiler.Properties.Aidl.Include_dirs) > 0 {
+			rootAidlIncludeDirs := android.PathsForSource(ctx, compiler.Properties.Aidl.Include_dirs)
+			flags.aidlFlags = append(flags.aidlFlags, includeDirsToFlags(rootAidlIncludeDirs))
+		}
+
+		flags.GlobalFlags = append(flags.GlobalFlags,
+			"-I"+android.PathForModuleGen(ctx, "aidl").String())
+	}
+
 	return flags
 }
 
@@ -347,7 +380,7 @@ func (compiler *baseCompiler) hasSrcExt(ext string) bool {
 var gnuToCReplacer = strings.NewReplacer("gnu", "c")
 
 func ndkPathDeps(ctx ModuleContext) android.Paths {
-	if ctx.sdk() {
+	if ctx.sdk() || ctx.vndk() {
 		// The NDK sysroot timestamp file depends on all the NDK sysroot files
 		// (headers and libraries).
 		return android.Paths{getNdkSysrootTimestampFile(ctx)}

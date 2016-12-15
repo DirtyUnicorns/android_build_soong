@@ -104,14 +104,14 @@ func init() {
 			"system/core/include",
 			"system/media/audio/include",
 			"hardware/libhardware/include",
-			"frameworks/native/include",
-		})
-	pctx.PrefixedPathsForOptionalSourceVariable("CommonGlobalSystemIncludes", "-isystem ",
-		[]string{
 			"hardware/libhardware_legacy/include",
 			"hardware/ril/include",
 			"libnativehelper/include",
+			"frameworks/native/include",
 			"frameworks/native/opengl/include",
+		})
+	pctx.PrefixedPathsForOptionalSourceVariable("CommonGlobalSystemIncludes", "-isystem ",
+		[]string{
 			"frameworks/av/include",
 			"frameworks/base/include",
 		})
@@ -136,7 +136,13 @@ func init() {
 	pctx.StaticVariable("ClangPath", "${ClangBase}/${HostPrebuiltTag}/${ClangVersion}")
 	pctx.StaticVariable("ClangBin", "${ClangPath}/bin")
 
-	pctx.StaticVariable("ClangAsanLibDir", "${ClangPath}/lib64/clang/3.8/lib/linux")
+	pctx.VariableFunc("ClangShortVersion", func(config interface{}) (string, error) {
+		if override := config.(android.Config).Getenv("LLVM_RELEASE_VERSION"); override != "" {
+			return override, nil
+		}
+		return "3.8", nil
+	})
+	pctx.StaticVariable("ClangAsanLibDir", "${ClangPath}/lib64/clang/${ClangShortVersion}/lib/linux")
 
 	pctx.VariableFunc("CcWrapper", func(config interface{}) (string, error) {
 		if override := config.(android.Config).Getenv("CC_WRAPPER"); override != "" {
@@ -156,4 +162,8 @@ func bionicHeaders(bionicArch, kernelArch string) string {
 		"-isystem bionic/libc/kernel/uapi/asm-" + kernelArch,
 		"-isystem bionic/libc/kernel/android/uapi",
 	}, " ")
+}
+
+func VndkLibraries() []string {
+	return []string{}
 }

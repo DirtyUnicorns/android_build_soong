@@ -100,8 +100,11 @@ var (
 			"pthread",
 			"z",
 		}, "-l"),
+		"-framework AppKit",
 		"-framework CoreFoundation",
+		"-framework Foundation",
 		"-framework IOKit",
+		"-framework Security",
 	)
 )
 
@@ -267,6 +270,10 @@ func (t *toolchainDarwin) ShlibSuffix() string {
 
 func (t *toolchainDarwin) AvailableLibraries() []string {
 	return darwinAvailableLibraries
+}
+
+func (t *toolchainDarwin) Bionic() bool {
+	return false
 }
 
 var toolchainDarwinX86Singleton Toolchain = &toolchainDarwinX86{}

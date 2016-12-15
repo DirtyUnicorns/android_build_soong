@@ -88,7 +88,7 @@ type libraryProperties struct {
 	First_version string
 
 	// Private property for use by the mutator that splits per-API level.
-	ApiLevel int `blueprint:"mutated"`
+	ApiLevel string `blueprint:"mutated"`
 }
 
 type stubDecorator struct {
@@ -109,7 +109,11 @@ func intMax(a int, b int) int {
 	}
 }
 
-func normalizeNdkApiLevel(apiLevel string, arch android.Arch) (int, error) {
+func normalizeNdkApiLevel(apiLevel string, arch android.Arch) (string, error) {
+	if apiLevel == "current" {
+		return apiLevel, nil
+	}
+
 	minVersion := 9 // Minimum version supported by the NDK.
 	firstArchVersions := map[string]int{
 		"arm":    9,
@@ -125,7 +129,7 @@ func normalizeNdkApiLevel(apiLevel string, arch android.Arch) (int, error) {
 	// supported version here instead.
 	version, err := strconv.Atoi(apiLevel)
 	if err != nil {
-		return -1, fmt.Errorf("API level must be an integer (is %q)", apiLevel)
+		return "", fmt.Errorf("API level must be an integer (is %q)", apiLevel)
 	}
 	version = intMax(version, minVersion)
 
@@ -135,35 +139,42 @@ func normalizeNdkApiLevel(apiLevel string, arch android.Arch) (int, error) {
 		panic(fmt.Errorf("Arch %q not found in firstArchVersions", archStr))
 	}
 
-	return intMax(version, firstArchVersion), nil
+	return strconv.Itoa(intMax(version, firstArchVersion)), nil
+}
+
+func getFirstGeneratedVersion(firstSupportedVersion string, platformVersion int) (int, error) {
+	if firstSupportedVersion == "current" {
+		return platformVersion + 1, nil
+	}
+
+	return strconv.Atoi(firstSupportedVersion)
 }
 
 func generateStubApiVariants(mctx android.BottomUpMutatorContext, c *stubDecorator) {
-	// TODO(danalbert): Use PlatformSdkVersion when possible.
-	// This is an interesting case because for the moment we actually need 24
-	// even though the latest released version in aosp is 23. prebuilts/ndk/r11
-	// has android-24 versions of libraries, and as platform libraries get
-	// migrated the libraries in prebuilts will need to depend on them.
-	//
-	// Once everything is all moved over to the new stuff (when there isn't a
-	// prebuilts/ndk any more) then this should be fixable, but for now I think
-	// it needs to remain as-is.
-	maxVersion := 24
+	platformVersion := mctx.AConfig().PlatformSdkVersionInt()
 
-	firstVersion, err := normalizeNdkApiLevel(c.properties.First_version,
+	firstSupportedVersion, err := normalizeNdkApiLevel(c.properties.First_version,
 		mctx.Arch())
 	if err != nil {
 		mctx.PropertyErrorf("first_version", err.Error())
 	}
 
-	versionStrs := make([]string, maxVersion-firstVersion+1)
-	for version := firstVersion; version <= maxVersion; version++ {
-		versionStrs[version-firstVersion] = strconv.Itoa(version)
+	firstGenVersion, err := getFirstGeneratedVersion(firstSupportedVersion, platformVersion)
+	if err != nil {
+		// In theory this is impossible because we've already run this through
+		// normalizeNdkApiLevel above.
+		mctx.PropertyErrorf("first_version", err.Error())
 	}
+
+	var versionStrs []string
+	for version := firstGenVersion; version <= platformVersion; version++ {
+		versionStrs = append(versionStrs, strconv.Itoa(version))
+	}
+	versionStrs = append(versionStrs, "current")
 
 	modules := mctx.CreateVariations(versionStrs...)
 	for i, module := range modules {
-		module.(*Module).compiler.(*stubDecorator).properties.ApiLevel = firstVersion + i
+		module.(*Module).compiler.(*stubDecorator).properties.ApiLevel = versionStrs[i]
 	}
 }
 
@@ -197,7 +208,7 @@ func (c *stubDecorator) compile(ctx ModuleContext, flags Flags, deps PathDeps) O
 			ndkLibrarySuffix)
 	}
 	libName := strings.TrimSuffix(ctx.ModuleName(), ndkLibrarySuffix)
-	fileBase := fmt.Sprintf("%s.%s.%d", libName, arch, c.properties.ApiLevel)
+	fileBase := fmt.Sprintf("%s.%s.%s", libName, arch, c.properties.ApiLevel)
 	stubSrcName := fileBase + ".c"
 	stubSrcPath := android.PathForModuleGen(ctx, stubSrcName)
 	versionScriptName := fileBase + ".map"
@@ -210,7 +221,7 @@ func (c *stubDecorator) compile(ctx ModuleContext, flags Flags, deps PathDeps) O
 		Input:   symbolFilePath,
 		Args: map[string]string{
 			"arch":     arch,
-			"apiLevel": strconv.Itoa(c.properties.ApiLevel),
+			"apiLevel": c.properties.ApiLevel,
 		},
 	})
 
@@ -231,7 +242,7 @@ func (c *stubDecorator) compile(ctx ModuleContext, flags Flags, deps PathDeps) O
 	return compileObjs(ctx, flagsToBuilderFlags(flags), subdir, srcs, nil)
 }
 
-func (linker *stubDecorator) linkerDeps(ctx BaseModuleContext, deps Deps) Deps {
+func (linker *stubDecorator) linkerDeps(ctx DepsContext, deps Deps) Deps {
 	return Deps{}
 }
 
@@ -261,12 +272,13 @@ func (stub *stubDecorator) install(ctx ModuleContext, path android.Path) {
 	}
 
 	installDir := getNdkInstallBase(ctx).Join(ctx, fmt.Sprintf(
-		"platforms/android-%d/arch-%s/usr/%s", apiLevel, arch, libDir))
+		"platforms/android-%s/arch-%s/usr/%s", apiLevel, arch, libDir))
 	stub.installPath = ctx.InstallFile(installDir, path).String()
 }
 
 func newStubLibrary() (*Module, []interface{}) {
-	module, library := NewLibrary(android.DeviceSupported, true, false)
+	module, library := NewLibrary(android.DeviceSupported)
+	library.BuildOnlyShared()
 	module.stl = nil
 	module.sanitize = nil
 	library.StripProperties.Strip.None = true

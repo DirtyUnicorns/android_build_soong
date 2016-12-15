@@ -66,6 +66,8 @@ type Toolchain interface {
 	ClangLdflags() string
 	ClangInstructionSetFlags(string) (string, error)
 
+	YasmFlags() string
+
 	Is64Bit() bool
 
 	ShlibSuffix() string
@@ -74,6 +76,8 @@ type Toolchain interface {
 	SanitizerRuntimeLibraryArch() string
 
 	AvailableLibraries() []string
+
+	Bionic() bool
 }
 
 type toolchainBase struct {
@@ -125,12 +129,20 @@ func (toolchainBase) ClangAsflags() string {
 	return ""
 }
 
+func (toolchainBase) YasmFlags() string {
+	return ""
+}
+
 func (toolchainBase) SanitizerRuntimeLibraryArch() string {
 	return ""
 }
 
 func (toolchainBase) AvailableLibraries() []string {
 	return []string{}
+}
+
+func (toolchainBase) Bionic() bool {
+	return true
 }
 
 type toolchain64Bit struct {

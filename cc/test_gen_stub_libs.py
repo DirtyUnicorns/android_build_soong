@@ -75,6 +75,8 @@ class SymbolPresenceTest(unittest.TestCase):
             ['introduced=9', 'introduced-x86=21'], 'arm', 14))
         self.assertTrue(gsl.symbol_in_api(
             ['introduced=21', 'introduced-arm=9'], 'arm', 14))
+        self.assertTrue(gsl.symbol_in_api(
+            ['future'], 'arm', gsl.FUTURE_API_LEVEL))
 
         self.assertFalse(gsl.symbol_in_api(['introduced=14'], 'arm', 9))
         self.assertFalse(gsl.symbol_in_api(['introduced-arm=14'], 'arm', 9))
@@ -109,6 +111,9 @@ class OmitVersionTest(unittest.TestCase):
 
         self.assertTrue(gsl.should_omit_version('foo_PRIVATE', [], 'arm', 9))
         self.assertTrue(gsl.should_omit_version('foo_PLATFORM', [], 'arm', 9))
+
+        self.assertTrue(gsl.should_omit_version(
+            'foo', ['platform-only'], 'arm', 9))
 
     def test_omit_arch(self):
         self.assertFalse(gsl.should_omit_version('foo', [], 'arm', 9))

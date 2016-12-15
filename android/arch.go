@@ -191,23 +191,27 @@ var BuildOs = func() OsType {
 var (
 	osTypeList []OsType
 
-	NoOsType OsType
-	Linux    = NewOsType("linux", Host)
-	Darwin   = NewOsType("darwin", Host)
-	Windows  = NewOsType("windows", HostCross)
-	Android  = NewOsType("android", Device)
+	NoOsType    OsType
+	Linux       = NewOsType("linux", Host, false)
+	Darwin      = NewOsType("darwin", Host, false)
+	LinuxBionic = NewOsType("linux_bionic", Host, true)
+	Windows     = NewOsType("windows", HostCross, true)
+	Android     = NewOsType("android", Device, false)
 
 	osArchTypeMap = map[OsType][]ArchType{
-		Linux:   []ArchType{X86, X86_64},
-		Darwin:  []ArchType{X86, X86_64},
-		Windows: []ArchType{X86, X86_64},
-		Android: []ArchType{Arm, Arm64, Mips, Mips64, X86, X86_64},
+		Linux:       []ArchType{X86, X86_64},
+		LinuxBionic: []ArchType{X86_64},
+		Darwin:      []ArchType{X86, X86_64},
+		Windows:     []ArchType{X86, X86_64},
+		Android:     []ArchType{Arm, Arm64, Mips, Mips64, X86, X86_64},
 	}
 )
 
 type OsType struct {
 	Name, Field string
 	Class       OsClass
+
+	DefaultDisabled bool
 }
 
 type OsClass int
@@ -222,11 +226,13 @@ func (os OsType) String() string {
 	return os.Name
 }
 
-func NewOsType(name string, class OsClass) OsType {
+func NewOsType(name string, class OsClass, defDisabled bool) OsType {
 	os := OsType{
 		Name:  name,
 		Field: strings.Title(name),
 		Class: class,
+
+		DefaultDisabled: defDisabled,
 	}
 	osTypeList = append(osTypeList, os)
 	return os
@@ -438,6 +444,8 @@ func createArchType(props reflect.Type) reflect.Type {
 		"Android64",
 		"Android32",
 		"Not_windows",
+		"Arm_on_x86",
+		"Arm_on_x86_64",
 	}
 	for _, os := range osTypeList {
 		targets = append(targets, os.Field)
@@ -706,6 +714,17 @@ func (a *ModuleBase) setArchProperties(ctx BottomUpMutatorContext) {
 				a.appendProperties(ctx, genProps, targetProp, field, prefix)
 			}
 		}
+
+		if arch.ArchType == X86 && hasArmAbi(arch) {
+			field := "Arm_on_x86"
+			prefix := "target.arm_on_x86"
+			a.appendProperties(ctx, genProps, targetProp, field, prefix)
+		}
+		if arch.ArchType == X86_64 && hasArmAbi(arch) {
+			field := "Arm_on_x86_64"
+			prefix := "target.arm_on_x86_64"
+			a.appendProperties(ctx, genProps, targetProp, field, prefix)
+		}
 	}
 }
 
@@ -797,6 +816,16 @@ func decodeTargetProductVariables(config *config) (map[OsClass][]Target, error) 
 	}
 
 	return targets, nil
+}
+
+// hasArmAbi returns true if arch has at least one arm ABI
+func hasArmAbi(arch Arch) bool {
+	for _, abi := range arch.Abi {
+		if strings.HasPrefix(abi, "arm") {
+			return true
+		}
+	}
+	return false
 }
 
 type archConfig struct {

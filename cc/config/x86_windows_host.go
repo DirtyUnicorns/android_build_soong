@@ -85,6 +85,7 @@ var (
 		"pthread",
 		"userenv",
 		"uuid",
+		"version",
 		"ws2_32",
 	}, "-l")
 )
@@ -200,6 +201,10 @@ func (t *toolchainWindows) ExecutableSuffix() string {
 
 func (t *toolchainWindows) AvailableLibraries() []string {
 	return windowsAvailableLibraries
+}
+
+func (t *toolchainWindows) Bionic() bool {
+	return false
 }
 
 var toolchainWindowsX86Singleton Toolchain = &toolchainWindowsX86{}

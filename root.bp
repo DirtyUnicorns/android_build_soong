@@ -1,7 +1,10 @@
 subname = "Android.bp"
 
+build = [
+    "build/blueprint/Blueprints",
+]
+
 subdirs = [
-    "build/blueprint",
     "build/soong",
 ]
 
@@ -11,9 +14,11 @@ optional_subdirs = [
     "build/kati",
     "build/tools/*",
     "dalvik",
+    "development/ndk",
     "external/*",
     "frameworks/av",
     "frameworks/base",
+    "frameworks/compile/*",
     "frameworks/native",
     "frameworks/rs",
     "frameworks/wilhelm",
@@ -32,4 +37,5 @@ optional_subdirs = [
     "system/media/*",
     "system/security/*",
     "system/tools/*",
+    "test/vts",
 ]

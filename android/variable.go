@@ -66,7 +66,18 @@ type variableProperties struct {
 			Cflags []string
 		}
 
+		// debuggable is true for eng and userdebug builds, and can be used to turn on additional
+		// debugging features that don't significantly impact runtime behavior.  userdebug builds
+		// are used for dogfooding and performance testing, and should be as similar to user builds
+		// as possible.
 		Debuggable struct {
+			Cflags   []string
+			Cppflags []string
+		}
+
+		// eng is true for -eng builds, and can be used to turn on additionaly heavyweight debugging
+		// features.
+		Eng struct {
 			Cflags   []string
 			Cppflags []string
 		}
@@ -87,6 +98,7 @@ type productVariables struct {
 	DeviceCpuVariant  *string   `json:",omitempty"`
 	DeviceAbi         *[]string `json:",omitempty"`
 	DeviceUsesClang   *bool     `json:",omitempty"`
+	DeviceVndkVersion *string   `json:",omitempty"`
 
 	DeviceSecondaryArch        *string   `json:",omitempty"`
 	DeviceSecondaryArchVariant *string   `json:",omitempty"`
@@ -111,6 +123,9 @@ type productVariables struct {
 	Binder32bit                *bool `json:",omitempty"`
 	UseGoma                    *bool `json:",omitempty"`
 	Debuggable                 *bool `json:",omitempty"`
+	Eng                        *bool `json:",omitempty"`
+
+	VendorPath *string `json:",omitempty"`
 
 	ClangTidy  *bool   `json:",omitempty"`
 	TidyChecks *string `json:",omitempty"`
@@ -137,7 +152,7 @@ func stringPtr(v string) *string {
 
 func (v *productVariables) SetDefaultConfig() {
 	*v = productVariables{
-		Platform_sdk_version:       intPtr(23),
+		Platform_sdk_version:       intPtr(24),
 		HostArch:                   stringPtr("x86_64"),
 		HostSecondaryArch:          stringPtr("x86"),
 		DeviceName:                 stringPtr("flounder"),

@@ -19,9 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"android/soong/glob"
-
 	"github.com/google/blueprint"
+	"github.com/google/blueprint/pathtools"
 )
 
 var (
@@ -34,16 +33,20 @@ var (
 )
 
 type ModuleBuildParams struct {
-	Rule      blueprint.Rule
-	Output    WritablePath
-	Outputs   WritablePaths
-	Input     Path
-	Inputs    Paths
-	Implicit  Path
-	Implicits Paths
-	OrderOnly Paths
-	Default   bool
-	Args      map[string]string
+	Rule            blueprint.Rule
+	Deps            blueprint.Deps
+	Depfile         WritablePath
+	Output          WritablePath
+	Outputs         WritablePaths
+	ImplicitOutput  WritablePath
+	ImplicitOutputs WritablePaths
+	Input           Path
+	Inputs          Paths
+	Implicit        Path
+	Implicits       Paths
+	OrderOnly       Paths
+	Default         bool
+	Args            map[string]string
 }
 
 type androidBaseContext interface {
@@ -74,7 +77,7 @@ type ModuleContext interface {
 	ModuleBuild(pctx blueprint.PackageContext, params ModuleBuildParams)
 
 	ExpandSources(srcFiles, excludes []string) Paths
-	Glob(outDir, globPattern string, excludes []string) Paths
+	Glob(globPattern string, excludes []string) Paths
 
 	InstallFile(installPath OutputPath, srcPath Path, deps ...Path) OutputPath
 	InstallFileName(installPath OutputPath, name string, srcPath Path, deps ...Path) OutputPath
@@ -97,6 +100,7 @@ type Module interface {
 	Enabled() bool
 	Target() Target
 	InstallInData() bool
+	SkipInstall()
 }
 
 type nameProperties struct {
@@ -354,7 +358,7 @@ func (a *ModuleBase) DeviceSupported() bool {
 
 func (a *ModuleBase) Enabled() bool {
 	if a.commonProperties.Enabled == nil {
-		return a.Os().Class != HostCross
+		return !a.Os().DefaultDisabled
 	}
 	return *a.commonProperties.Enabled
 }
@@ -507,7 +511,7 @@ func (a *androidModuleContext) ninjaError(outputs []string, err error) {
 }
 
 func (a *androidModuleContext) Build(pctx blueprint.PackageContext, params blueprint.BuildParams) {
-	if a.missingDeps != nil && params.Rule != globRule {
+	if a.missingDeps != nil {
 		a.ninjaError(params.Outputs, fmt.Errorf("module %s missing dependencies: %s\n",
 			a.ModuleName(), strings.Join(a.missingDeps, ", ")))
 		return
@@ -519,17 +523,25 @@ func (a *androidModuleContext) Build(pctx blueprint.PackageContext, params bluep
 
 func (a *androidModuleContext) ModuleBuild(pctx blueprint.PackageContext, params ModuleBuildParams) {
 	bparams := blueprint.BuildParams{
-		Rule:      params.Rule,
-		Outputs:   params.Outputs.Strings(),
-		Inputs:    params.Inputs.Strings(),
-		Implicits: params.Implicits.Strings(),
-		OrderOnly: params.OrderOnly.Strings(),
-		Args:      params.Args,
-		Optional:  !params.Default,
+		Rule:            params.Rule,
+		Deps:            params.Deps,
+		Outputs:         params.Outputs.Strings(),
+		ImplicitOutputs: params.ImplicitOutputs.Strings(),
+		Inputs:          params.Inputs.Strings(),
+		Implicits:       params.Implicits.Strings(),
+		OrderOnly:       params.OrderOnly.Strings(),
+		Args:            params.Args,
+		Optional:        !params.Default,
 	}
 
+	if params.Depfile != nil {
+		bparams.Depfile = params.Depfile.String()
+	}
 	if params.Output != nil {
 		bparams.Outputs = append(bparams.Outputs, params.Output.String())
+	}
+	if params.ImplicitOutput != nil {
+		bparams.ImplicitOutputs = append(bparams.ImplicitOutputs, params.ImplicitOutput.String())
 	}
 	if params.Input != nil {
 		bparams.Inputs = append(bparams.Inputs, params.Input.String())
@@ -712,8 +724,8 @@ func (ctx *androidModuleContext) ExpandSources(srcFiles, excludes []string) Path
 
 	globbedSrcFiles := make(Paths, 0, len(srcFiles))
 	for _, s := range srcFiles {
-		if glob.IsGlob(s) {
-			globbedSrcFiles = append(globbedSrcFiles, ctx.Glob("src_glob", filepath.Join(prefix, s), excludes)...)
+		if pathtools.IsGlob(s) {
+			globbedSrcFiles = append(globbedSrcFiles, ctx.Glob(filepath.Join(prefix, s), excludes)...)
 		} else {
 			globbedSrcFiles = append(globbedSrcFiles, PathForModuleSrc(ctx, s))
 		}
@@ -722,8 +734,8 @@ func (ctx *androidModuleContext) ExpandSources(srcFiles, excludes []string) Path
 	return globbedSrcFiles
 }
 
-func (ctx *androidModuleContext) Glob(outDir, globPattern string, excludes []string) Paths {
-	ret, err := Glob(ctx, PathForModuleOut(ctx, outDir).String(), globPattern, excludes)
+func (ctx *androidModuleContext) Glob(globPattern string, excludes []string) Paths {
+	ret, err := ctx.GlobWithDeps(globPattern, excludes)
 	if err != nil {
 		ctx.ModuleErrorf("glob: %s", err.Error())
 	}
