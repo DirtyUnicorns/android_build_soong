@@ -29,6 +29,7 @@ import (
 )
 
 var Bool = proptools.Bool
+var String = proptools.String
 
 // The configuration file name
 const configFileName = "soong.config"
@@ -176,7 +177,6 @@ func NewConfig(srcDir, buildDir string) (Config, error) {
 
 		srcDir:   srcDir,
 		buildDir: buildDir,
-		envDeps:  make(map[string]string),
 
 		deviceConfig: &deviceConfig{},
 	}
@@ -280,6 +280,10 @@ func (c *config) Getenv(key string) string {
 	var val string
 	var exists bool
 	c.envLock.Lock()
+	defer c.envLock.Unlock()
+	if c.envDeps == nil {
+		c.envDeps = make(map[string]string)
+	}
 	if val, exists = c.envDeps[key]; !exists {
 		if c.envFrozen {
 			panic("Cannot access new environment variables after envdeps are frozen")
@@ -287,7 +291,6 @@ func (c *config) Getenv(key string) string {
 		val = os.Getenv(key)
 		c.envDeps[key] = val
 	}
-	c.envLock.Unlock()
 	return val
 }
 
@@ -311,8 +314,8 @@ func (c *config) IsEnvFalse(key string) bool {
 
 func (c *config) EnvDeps() map[string]string {
 	c.envLock.Lock()
+	defer c.envLock.Unlock()
 	c.envFrozen = true
-	c.envLock.Unlock()
 	return c.envDeps
 }
 
@@ -397,6 +400,10 @@ func (c *config) SanitizeDeviceArch() []string {
 	return append([]string(nil), c.ProductVariables.SanitizeDeviceArch...)
 }
 
+func (c *config) EnableCFI() bool {
+	return Bool(c.ProductVariables.EnableCFI)
+}
+
 func (c *config) Android64() bool {
 	for _, t := range c.Targets[Device] {
 		if t.Arch.ArchType.Multilib == "lib64" {
@@ -459,4 +466,23 @@ func (c *deviceConfig) VndkVersion() string {
 		return ""
 	}
 	return *c.config.ProductVariables.DeviceVndkVersion
+}
+
+func (c *deviceConfig) BtConfigIncludeDir() string {
+	return String(c.config.ProductVariables.BtConfigIncludeDir)
+}
+
+func (c *deviceConfig) NativeCoverageEnabled() bool {
+	return Bool(c.config.ProductVariables.NativeCoverage)
+}
+
+func (c *deviceConfig) CoverageEnabledForPath(path string) bool {
+	if c.config.ProductVariables.CoveragePaths != nil {
+		for _, prefix := range *c.config.ProductVariables.CoveragePaths {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }

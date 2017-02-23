@@ -124,11 +124,15 @@ type productVariables struct {
 	UseGoma                    *bool `json:",omitempty"`
 	Debuggable                 *bool `json:",omitempty"`
 	Eng                        *bool `json:",omitempty"`
+	EnableCFI                  *bool `json:",omitempty"`
 
 	VendorPath *string `json:",omitempty"`
 
 	ClangTidy  *bool   `json:",omitempty"`
 	TidyChecks *string `json:",omitempty"`
+
+	NativeCoverage *bool     `json:",omitempty"`
+	CoveragePaths  *[]string `json:",omitempty"`
 
 	DevicePrefer32BitExecutables *bool `json:",omitempty"`
 	HostPrefer32BitExecutables   *bool `json:",omitempty"`
@@ -138,6 +142,8 @@ type productVariables struct {
 	SanitizeDeviceArch []string `json:",omitempty"`
 
 	ArtUseReadBarrier *bool `json:",omitempty"`
+
+	BtConfigIncludeDir *string `json:",omitempty"`
 }
 
 func boolPtr(v bool) *bool {

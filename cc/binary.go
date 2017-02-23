@@ -41,6 +41,9 @@ type BinaryLinkerProperties struct {
 	// extension (if any) appended
 	Symlinks []string `android:"arch_variant"`
 
+	// do not pass -pie
+	No_pie *bool `android:"arch_variant"`
+
 	DynamicLinker string `blueprint:"mutated"`
 }
 
@@ -76,6 +79,9 @@ type binaryDecorator struct {
 
 	// Names of symlinks to be installed for use in LOCAL_MODULE_SYMLINKS
 	symlinks []string
+
+	// Output archive of gcno coverage information
+	coverageOutputFile android.OptionalPath
 }
 
 var _ linker = (*binaryDecorator)(nil)
@@ -131,7 +137,7 @@ func (binary *binaryDecorator) linkerDeps(ctx DepsContext, deps Deps) Deps {
 		}
 
 		if binary.static() {
-			if inList("libc++_static", deps.StaticLibs) {
+			if ctx.selectedStl() == "libc++_static" {
 				deps.StaticLibs = append(deps.StaticLibs, "libm", "libc", "libdl")
 			}
 			// static libraries libcompiler_rt, libc and libc_nomalloc need to be linked with
@@ -194,9 +200,11 @@ func (binary *binaryDecorator) linkerFlags(ctx ModuleContext, flags Flags) Flags
 	flags = binary.baseLinker.linkerFlags(ctx, flags)
 
 	if ctx.Host() && !binary.static() {
-		flags.LdFlags = append(flags.LdFlags, "-pie")
-		if ctx.Os() == android.Windows {
-			flags.LdFlags = append(flags.LdFlags, "-Wl,-e_mainCRTStartup")
+		if !ctx.AConfig().IsEnvTrue("DISABLE_HOST_PIE") {
+			flags.LdFlags = append(flags.LdFlags, "-pie")
+			if ctx.Os() == android.Windows {
+				flags.LdFlags = append(flags.LdFlags, "-Wl,-e_mainCRTStartup")
+			}
 		}
 	}
 
@@ -293,6 +301,10 @@ func (binary *binaryDecorator) link(ctx ModuleContext,
 	TransformObjToDynamicBinary(ctx, objs.objFiles, sharedLibs, deps.StaticLibs,
 		deps.LateStaticLibs, deps.WholeStaticLibs, linkerDeps, deps.CrtBegin, deps.CrtEnd, true,
 		builderFlags, outputFile)
+
+	objs.coverageFiles = append(objs.coverageFiles, deps.StaticLibObjs.coverageFiles...)
+	objs.coverageFiles = append(objs.coverageFiles, deps.WholeStaticLibObjs.coverageFiles...)
+	binary.coverageOutputFile = TransformCoverageFilesToLib(ctx, objs, builderFlags, binary.getStem(ctx))
 
 	return ret
 }

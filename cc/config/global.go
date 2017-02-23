@@ -65,9 +65,11 @@ var (
 		"-w",
 	}
 
-	CStdVersion      = "gnu99"
-	CppStdVersion    = "gnu++14"
-	GccCppStdVersion = "gnu++11"
+	CStdVersion               = "gnu99"
+	CppStdVersion             = "gnu++14"
+	GccCppStdVersion          = "gnu++11"
+	ExperimentalCStdVersion   = "gnu11"
+	ExperimentalCppStdVersion = "gnu++1z"
 )
 
 var pctx = android.NewPackageContext("android/soong/cc/config")
@@ -130,7 +132,7 @@ func init() {
 		if override := config.(android.Config).Getenv("LLVM_PREBUILTS_VERSION"); override != "" {
 			return override, nil
 		}
-		return "clang-3289846", nil
+		return "clang-3688880", nil
 	})
 	pctx.StaticVariable("ClangPath", "${ClangBase}/${HostPrebuiltTag}/${ClangVersion}")
 	pctx.StaticVariable("ClangBin", "${ClangPath}/bin")
@@ -139,9 +141,17 @@ func init() {
 		if override := config.(android.Config).Getenv("LLVM_RELEASE_VERSION"); override != "" {
 			return override, nil
 		}
-		return "3.8", nil
+		return "4.0", nil
 	})
 	pctx.StaticVariable("ClangAsanLibDir", "${ClangPath}/lib64/clang/${ClangShortVersion}/lib/linux")
+
+	// These are tied to the version of LLVM directly in external/llvm, so they might trail the host prebuilts
+	// being used for the rest of the build process.
+	pctx.SourcePathVariable("RSClangBase", "prebuilts/clang/host")
+	pctx.SourcePathVariable("RSClangVersion", "clang-3289846")
+	pctx.SourcePathVariable("RSReleaseVersion", "3.8")
+	pctx.StaticVariable("RSLLVMPrebuiltsPath", "${RSClangBase}/${HostPrebuiltTag}/${RSClangVersion}/bin")
+	pctx.StaticVariable("RSIncludePath", "${RSLLVMPrebuiltsPath}/../lib64/clang/${RSReleaseVersion}/include")
 
 	pctx.VariableFunc("CcWrapper", func(config interface{}) (string, error) {
 		if override := config.(android.Config).Getenv("CC_WRAPPER"); override != "" {
