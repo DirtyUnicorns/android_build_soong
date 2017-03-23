@@ -19,7 +19,11 @@ import "github.com/google/blueprint"
 // This file implements common functionality for handling modules that may exist as prebuilts,
 // source, or both.
 
-var prebuiltDependencyTag blueprint.BaseDependencyTag
+type prebuiltDependencyTag struct {
+	blueprint.BaseDependencyTag
+}
+
+var prebuiltDepTag prebuiltDependencyTag
 
 type Prebuilt struct {
 	Properties struct {
@@ -64,7 +68,7 @@ func prebuiltMutator(ctx BottomUpMutatorContext) {
 		p := m.Prebuilt()
 		name := m.base().BaseModuleName()
 		if ctx.OtherModuleExists(name) {
-			ctx.AddReverseDependency(ctx.Module(), prebuiltDependencyTag, name)
+			ctx.AddReverseDependency(ctx.Module(), prebuiltDepTag, name)
 			p.Properties.SourceExists = true
 		} else {
 			ctx.Rename(name)
@@ -72,12 +76,17 @@ func prebuiltMutator(ctx BottomUpMutatorContext) {
 	}
 }
 
-// PrebuiltSelectModuleMutator marks prebuilts that are overriding source modules, and disables
-// installing the source module.
+// PrebuiltSelectModuleMutator marks prebuilts that are used, either overriding source modules or
+// because the source module doesn't exist.  It also disables installing overridden source modules.
 func PrebuiltSelectModuleMutator(ctx TopDownMutatorContext) {
-	if s, ok := ctx.Module().(Module); ok {
+	if m, ok := ctx.Module().(PrebuiltInterface); ok && m.Prebuilt() != nil {
+		p := m.Prebuilt()
+		if !p.Properties.SourceExists {
+			p.Properties.UsePrebuilt = p.usePrebuilt(ctx, nil)
+		}
+	} else if s, ok := ctx.Module().(Module); ok {
 		ctx.VisitDirectDeps(func(m blueprint.Module) {
-			if ctx.OtherModuleDependencyTag(m) == prebuiltDependencyTag {
+			if ctx.OtherModuleDependencyTag(m) == prebuiltDepTag {
 				p := m.(PrebuiltInterface).Prebuilt()
 				if p.usePrebuilt(ctx, s) {
 					p.Properties.UsePrebuilt = true
@@ -117,5 +126,5 @@ func (p *Prebuilt) usePrebuilt(ctx TopDownMutatorContext, source Module) bool {
 		return true
 	}
 
-	return !source.Enabled()
+	return source == nil || !source.Enabled()
 }

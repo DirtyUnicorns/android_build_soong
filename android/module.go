@@ -137,6 +137,9 @@ type commonProperties struct {
 	// whether this is a proprietary vendor module, and should be installed into /vendor
 	Proprietary bool
 
+	// vendor who owns this module
+	Owner string
+
 	// *.logtags files, to combine together in order to generate the /system/etc/event-log-tags
 	// file
 	Logtags []string
@@ -631,7 +634,7 @@ func (a *androidModuleContext) InstallFileName(installPath OutputPath, name stri
 	a.module.base().hooks.runInstallHooks(a, fullInstallPath, false)
 
 	if !a.module.base().commonProperties.SkipInstall &&
-		(a.Host() || !a.AConfig().SkipDeviceInstall()) {
+		(!a.Device() || !a.AConfig().SkipDeviceInstall()) {
 
 		deps = append(deps, a.installDeps...)
 
@@ -669,7 +672,7 @@ func (a *androidModuleContext) InstallSymlink(installPath OutputPath, name strin
 	a.module.base().hooks.runInstallHooks(a, fullInstallPath, true)
 
 	if !a.module.base().commonProperties.SkipInstall &&
-		(a.Host() || !a.AConfig().SkipDeviceInstall()) {
+		(!a.Device() || !a.AConfig().SkipDeviceInstall()) {
 
 		a.ModuleBuild(pctx, ModuleBuildParams{
 			Rule:      Symlink,

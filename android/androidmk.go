@@ -164,6 +164,11 @@ func translateAndroidMkModule(ctx blueprint.SingletonContext, w io.Writer, mod b
 		return err
 	}
 
+	// Make does not understand LinuxBionic
+	if amod.Os() == LinuxBionic {
+		return nil
+	}
+
 	if data.SubName != "" {
 		name += data.SubName
 	}
@@ -226,6 +231,9 @@ func translateAndroidMkModule(ctx blueprint.SingletonContext, w io.Writer, mod b
 		}
 		if amod.commonProperties.Proprietary {
 			fmt.Fprintln(w, "LOCAL_PROPRIETARY_MODULE := true")
+		}
+		if amod.commonProperties.Owner != "" {
+			fmt.Fprintln(w, "LOCAL_MODULE_OWNER :=", amod.commonProperties.Owner)
 		}
 	}
 

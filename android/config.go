@@ -40,6 +40,7 @@ const productVariablesFileName = "soong.variables"
 type FileConfigurableOptions struct {
 	Mega_device *bool `json:",omitempty"`
 	Ndk_abis    *bool `json:",omitempty"`
+	Host_bionic *bool `json:",omitempty"`
 }
 
 func (f *FileConfigurableOptions) SetDefaultConfig() {
@@ -438,7 +439,7 @@ func (c *config) LibartImgDeviceBaseAddress() string {
 	default:
 		return "0x70000000"
 	case Mips, Mips64:
-		return "0x30000000"
+		return "0x64000000"
 	}
 }
 
@@ -477,12 +478,22 @@ func (c *deviceConfig) NativeCoverageEnabled() bool {
 }
 
 func (c *deviceConfig) CoverageEnabledForPath(path string) bool {
+	coverage := false
 	if c.config.ProductVariables.CoveragePaths != nil {
 		for _, prefix := range *c.config.ProductVariables.CoveragePaths {
 			if strings.HasPrefix(path, prefix) {
-				return true
+				coverage = true
+				break
 			}
 		}
 	}
-	return false
+	if coverage && c.config.ProductVariables.CoverageExcludePaths != nil {
+		for _, prefix := range *c.config.ProductVariables.CoverageExcludePaths {
+			if strings.HasPrefix(path, prefix) {
+				coverage = false
+				break
+			}
+		}
+	}
+	return coverage
 }
