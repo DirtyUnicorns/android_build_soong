@@ -5,11 +5,12 @@ import (
 
 	"android/soong/android"
 	"android/soong/cc/config"
-	"github.com/google/blueprint"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/blueprint"
 )
 
 // This singleton generates CMakeLists.txt files. It does so for each blueprint Android.bp resulting in a cc.Module
@@ -162,13 +163,22 @@ func generateCLionProject(compiledModule CompiledInterface, ctx blueprint.Single
 	cppParameters := parseCompilerParameters(ccModule.flags.CppFlags, ctx, f)
 	translateToCMake(cppParameters, f, false, true)
 
+	f.WriteString("\n# SYSTEM INCLUDE FLAGS:\n")
+	includeParameters := parseCompilerParameters(ccModule.flags.SystemIncludeFlags, ctx, f)
+	translateToCMake(includeParameters, f, true, true)
+
 	// Add project executable.
-	f.WriteString(fmt.Sprintf("\nadd_executable(%s ${SOURCE_FILES})\n", ccModule.ModuleBase.Name()))
+	f.WriteString(fmt.Sprintf("\nadd_executable(%s ${SOURCE_FILES})\n",
+		cleanExecutableName(ccModule.ModuleBase.Name())))
+}
+
+func cleanExecutableName(s string) string {
+	return strings.Replace(s, "@", "-", -1)
 }
 
 func translateToCMake(c compilerParameters, f *os.File, cflags bool, cppflags bool) {
-	writeAllSystemDirectories(c.systemHeaderSearchPath, f)
-	writeAllIncludeDirectories(c.headerSearchPath, f)
+	writeAllIncludeDirectories(c.systemHeaderSearchPath, f, true)
+	writeAllIncludeDirectories(c.headerSearchPath, f, false)
 	if cflags {
 		writeAllFlags(c.flags, f, "CMAKE_C_FLAGS")
 	}
@@ -189,16 +199,30 @@ func buildCMakePath(p string) string {
 	return fmt.Sprintf("${ANDROID_ROOT}/%s", p)
 }
 
-func writeAllIncludeDirectories(includes map[string]bool, f *os.File) {
-	for include := range includes {
-		f.WriteString(fmt.Sprintf("include_directories(\"%s\")\n", buildCMakePath(include)))
+func writeAllIncludeDirectories(includes []string, f *os.File, isSystem bool) {
+	if len(includes) == 0 {
+		return
 	}
-}
 
-func writeAllSystemDirectories(includes map[string]bool, f *os.File) {
-	for include := range includes {
-		f.WriteString(fmt.Sprintf("include_directories(SYSTEM \"%s\")\n", buildCMakePath(include)))
+	system := ""
+        if isSystem {
+		system = "SYSTEM"
 	}
+
+	f.WriteString(fmt.Sprintf("include_directories(%s \n", system))
+
+	for _, include := range includes {
+		f.WriteString(fmt.Sprintf("    \"%s\"\n", buildCMakePath(include)))
+	}
+	f.WriteString(")\n\n")
+
+	// Also add all headers to source files.
+	f.WriteString("file (GLOB_RECURSE TMP_HEADERS\n");
+	for _, include := range includes {
+		f.WriteString(fmt.Sprintf("    \"%s/**/*.h\"\n", buildCMakePath(include)))
+	}
+	f.WriteString(")\n")
+	f.WriteString("list (APPEND SOURCE_FILES ${TMP_HEADERS})\n\n");
 }
 
 func writeAllFlags(flags []string, f *os.File, tag string) {
@@ -218,17 +242,14 @@ const (
 )
 
 type compilerParameters struct {
-	headerSearchPath       map[string]bool
-	systemHeaderSearchPath map[string]bool
+	headerSearchPath       []string
+	systemHeaderSearchPath []string
 	flags                  []string
 	sysroot                string
 }
 
 func makeCompilerParameters() compilerParameters {
 	return compilerParameters{
-		headerSearchPath:       make(map[string]bool),
-		systemHeaderSearchPath: make(map[string]bool),
-		flags:   make([]string, 0),
 		sysroot: "",
 	}
 }
@@ -267,7 +288,8 @@ func parseCompilerParameters(params []string, ctx blueprint.SingletonContext, f 
 
 		switch categorizeParameter(param) {
 		case headerSearchPath:
-			compilerParameters.headerSearchPath[strings.TrimPrefix(param, "-I")] = true
+			compilerParameters.headerSearchPath =
+				append(compilerParameters.headerSearchPath, strings.TrimPrefix(param, "-I"))
 		case variable:
 			if evaluated, error := evalVariable(ctx, param); error == nil {
 				if outputDebugInfo {
@@ -284,7 +306,8 @@ func parseCompilerParameters(params []string, ctx blueprint.SingletonContext, f 
 			}
 		case systemHeaderSearchPath:
 			if i < len(params)-1 {
-				compilerParameters.systemHeaderSearchPath[params[i+1]] = true
+				compilerParameters.systemHeaderSearchPath =
+					append(compilerParameters.systemHeaderSearchPath, params[i+1])
 			} else if outputDebugInfo {
 				f.WriteString("# Found a header search path marker with no path")
 			}
@@ -343,8 +366,8 @@ func doubleEscape(s string) string {
 }
 
 func concatenateParams(c1 *compilerParameters, c2 compilerParameters) {
-	concatenateMaps(c1.headerSearchPath, c2.headerSearchPath)
-	concatenateMaps(c1.systemHeaderSearchPath, c2.systemHeaderSearchPath)
+	c1.headerSearchPath = append(c1.headerSearchPath, c2.headerSearchPath...)
+	c1.systemHeaderSearchPath = append(c1.systemHeaderSearchPath, c2.systemHeaderSearchPath...)
 	if c2.sysroot != "" {
 		c1.sysroot = c2.sysroot
 	}
@@ -357,13 +380,6 @@ func evalVariable(ctx blueprint.SingletonContext, str string) (string, error) {
 		return evaluated, nil
 	}
 	return "", err
-}
-
-// Concatenate two maps into one. Results are stored in first operand.
-func concatenateMaps(map1 map[string]bool, map2 map[string]bool) {
-	for key, value := range map2 {
-		map1[key] = value
-	}
 }
 
 func getCMakeListsForModule(module *Module, ctx blueprint.SingletonContext) string {

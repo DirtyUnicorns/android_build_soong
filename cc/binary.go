@@ -108,7 +108,7 @@ func (binary *binaryDecorator) linkerDeps(ctx DepsContext, deps Deps) Deps {
 	deps = binary.baseLinker.linkerDeps(ctx, deps)
 	if ctx.toolchain().Bionic() {
 		if !Bool(binary.baseLinker.Properties.Nocrt) {
-			if !ctx.sdk() && !ctx.vndk() {
+			if !ctx.sdk() {
 				if binary.static() {
 					deps.CrtBegin = "crtbegin_static"
 				} else {
@@ -204,7 +204,7 @@ func (binary *binaryDecorator) linkerFlags(ctx ModuleContext, flags Flags) Flags
 	if ctx.Host() && !binary.static() {
 		if !ctx.AConfig().IsEnvTrue("DISABLE_HOST_PIE") {
 			flags.LdFlags = append(flags.LdFlags, "-pie")
-			if ctx.Os() == android.Windows {
+			if ctx.Windows() {
 				flags.LdFlags = append(flags.LdFlags, "-Wl,-e_mainCRTStartup")
 			}
 		}
@@ -213,7 +213,7 @@ func (binary *binaryDecorator) linkerFlags(ctx ModuleContext, flags Flags) Flags
 	// MinGW spits out warnings about -fPIC even for -fpie?!) being ignored because
 	// all code is position independent, and then those warnings get promoted to
 	// errors.
-	if ctx.Os() != android.Windows {
+	if !ctx.Windows() {
 		flags.CFlags = append(flags.CFlags, "-fpie")
 	}
 

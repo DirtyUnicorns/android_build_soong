@@ -143,7 +143,7 @@ func (linker *baseLinker) linkerDeps(ctx BaseModuleContext, deps Deps) Deps {
 			if linker.Properties.System_shared_libs != nil {
 				deps.LateSharedLibs = append(deps.LateSharedLibs,
 					linker.Properties.System_shared_libs...)
-			} else if !ctx.sdk() {
+			} else if !ctx.sdk() && !ctx.vndk() {
 				deps.LateSharedLibs = append(deps.LateSharedLibs, "libc", "libm")
 			}
 		}
@@ -154,9 +154,12 @@ func (linker *baseLinker) linkerDeps(ctx BaseModuleContext, deps Deps) Deps {
 				"libm",
 			)
 		}
+		if ctx.vndk() {
+			deps.LateSharedLibs = append(deps.LateSharedLibs, "libc", "libm")
+		}
 	}
 
-	if ctx.Os() == android.Windows {
+	if ctx.Windows() {
 		deps.LateStaticLibs = append(deps.LateStaticLibs, "libwinpthread")
 	}
 

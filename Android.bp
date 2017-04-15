@@ -47,6 +47,7 @@ bootstrap_go_package {
     ],
     srcs: [
         "android/androidmk.go",
+        "android/api_levels.go",
         "android/arch.go",
         "android/config.go",
         "android/defaults.go",
@@ -146,6 +147,8 @@ bootstrap_go_package {
         "cc/ndk_headers.go",
         "cc/ndk_library.go",
         "cc/ndk_sysroot.go",
+
+        "cc/llndk_library.go",
     ],
     testSrcs: [
         "cc/cc_test.go",
@@ -229,6 +232,7 @@ cc_defaults {
 toolchain_library {
     name: "libatomic",
     defaults: ["linux_bionic_supported"],
+    vendor_available: true,
     arch: {
         arm: {
             instruction_set: "arm",
@@ -239,6 +243,7 @@ toolchain_library {
 toolchain_library {
     name: "libgcc",
     defaults: ["linux_bionic_supported"],
+    vendor_available: true,
     arch: {
         arm: {
             instruction_set: "arm",

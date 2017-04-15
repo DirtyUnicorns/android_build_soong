@@ -57,7 +57,6 @@ func makeVarsProvider(ctx android.MakeVarsContext) {
 	} else {
 		ctx.Strict("BOARD_VNDK_VERSION", "")
 	}
-	ctx.Strict("VNDK_LIBRARIES", strings.Join(config.VndkLibraries(), " "))
 
 	ctx.Strict("ADDRESS_SANITIZER_CONFIG_EXTRA_CFLAGS", asanCflags)
 	ctx.Strict("ADDRESS_SANITIZER_CONFIG_EXTRA_LDFLAGS", asanLdflags)
@@ -209,6 +208,7 @@ func makeVarsToolchain(ctx android.MakeVarsContext, secondPrefix string,
 		if target.Os.Class == android.Device {
 			ctx.Strict(secondPrefix+"ADDRESS_SANITIZER_RUNTIME_LIBRARY", strings.TrimSuffix(config.AddressSanitizerRuntimeLibrary(toolchain), ".so"))
 			ctx.Strict(secondPrefix+"UBSAN_RUNTIME_LIBRARY", strings.TrimSuffix(config.UndefinedBehaviorSanitizerRuntimeLibrary(toolchain), ".so"))
+			ctx.Strict(secondPrefix+"TSAN_RUNTIME_LIBRARY", strings.TrimSuffix(config.ThreadSanitizerRuntimeLibrary(toolchain), ".so"))
 		}
 
 		// This is used by external/gentoo/...

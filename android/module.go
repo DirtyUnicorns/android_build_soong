@@ -57,8 +57,10 @@ type androidBaseContext interface {
 	Host() bool
 	Device() bool
 	Darwin() bool
+	Windows() bool
 	Debug() bool
 	PrimaryArch() bool
+	Vendor() bool
 	AConfig() Config
 	DeviceConfig() DeviceConfig
 }
@@ -87,8 +89,8 @@ type ModuleContext interface {
 
 	AddMissingDependencies(deps []string)
 
-	Proprietary() bool
 	InstallInData() bool
+	InstallInSanitizerDir() bool
 
 	RequiredModuleNames() []string
 }
@@ -103,6 +105,7 @@ type Module interface {
 	Enabled() bool
 	Target() Target
 	InstallInData() bool
+	InstallInSanitizerDir() bool
 	SkipInstall()
 }
 
@@ -139,6 +142,9 @@ type commonProperties struct {
 
 	// vendor who owns this module
 	Owner string
+
+	// whether this module is device specific and should be installed into /vendor
+	Vendor bool
 
 	// *.logtags files, to combine together in order to generate the /system/etc/event-log-tags
 	// file
@@ -399,6 +405,10 @@ func (p *ModuleBase) InstallInData() bool {
 	return false
 }
 
+func (p *ModuleBase) InstallInSanitizerDir() bool {
+	return false
+}
+
 func (a *ModuleBase) generateModuleTarget(ctx blueprint.ModuleContext) {
 	allInstalledFiles := Paths{}
 	allCheckbuildFiles := Paths{}
@@ -455,6 +465,7 @@ func (a *ModuleBase) androidBaseContextFactory(ctx blueprint.BaseModuleContext) 
 	return androidBaseContextImpl{
 		target:        a.commonProperties.CompileTarget,
 		targetPrimary: a.commonProperties.CompilePrimary,
+		vendor:        a.commonProperties.Proprietary || a.commonProperties.Vendor,
 		config:        ctx.Config().(Config),
 	}
 }
@@ -491,6 +502,7 @@ type androidBaseContextImpl struct {
 	target        Target
 	targetPrimary bool
 	debug         bool
+	vendor        bool
 	config        Config
 }
 
@@ -603,6 +615,10 @@ func (a *androidBaseContextImpl) Darwin() bool {
 	return a.target.Os == Darwin
 }
 
+func (a *androidBaseContextImpl) Windows() bool {
+	return a.target.Os == Windows
+}
+
 func (a *androidBaseContextImpl) Debug() bool {
 	return a.debug
 }
@@ -619,12 +635,16 @@ func (a *androidBaseContextImpl) DeviceConfig() DeviceConfig {
 	return DeviceConfig{a.config.deviceConfig}
 }
 
-func (a *androidModuleContext) Proprietary() bool {
-	return a.module.base().commonProperties.Proprietary
+func (a *androidBaseContextImpl) Vendor() bool {
+	return a.vendor
 }
 
 func (a *androidModuleContext) InstallInData() bool {
 	return a.module.InstallInData()
+}
+
+func (a *androidModuleContext) InstallInSanitizerDir() bool {
+	return a.module.InstallInSanitizerDir()
 }
 
 func (a *androidModuleContext) InstallFileName(installPath OutputPath, name string, srcPath Path,

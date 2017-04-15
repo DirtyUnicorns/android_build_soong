@@ -15,6 +15,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"android/soong/android"
@@ -132,7 +133,7 @@ func init() {
 		if override := config.(android.Config).Getenv("LLVM_PREBUILTS_VERSION"); override != "" {
 			return override, nil
 		}
-		return "clang-3688880", nil
+		return "clang-3859424", nil
 	})
 	pctx.StaticVariable("ClangPath", "${ClangBase}/${HostPrebuiltTag}/${ClangVersion}")
 	pctx.StaticVariable("ClangBin", "${ClangPath}/bin")
@@ -175,4 +176,18 @@ func bionicHeaders(bionicArch, kernelArch string) string {
 
 func VndkLibraries() []string {
 	return []string{}
+}
+
+// This needs to be kept up to date with the list in system/core/rootdir/etc/ld.config.txt:
+// [vendor]
+// namespace.default.link.system.shared_libs
+func LLndkLibraries() []string {
+	return []string{"libc", "libm", "libdl", "liblog", "ld-android"}
+}
+
+func replaceFirst(slice []string, from, to string) {
+	if slice[0] != from {
+		panic(fmt.Errorf("Expected %q, found %q", from, to))
+	}
+	slice[0] = to
 }

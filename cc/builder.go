@@ -109,7 +109,7 @@ var (
 		},
 		"objcopyCmd", "prefix")
 
-	stripPath = pctx.SourcePathVariable("stripPath", "build/soong/scripts/strip.sh")
+	_ = pctx.SourcePathVariable("stripPath", "build/soong/scripts/strip.sh")
 
 	strip = pctx.AndroidStaticRule("strip",
 		blueprint.RuleParams{
@@ -127,7 +127,7 @@ var (
 			Description: "empty file $out",
 		})
 
-	copyGccLibPath = pctx.SourcePathVariable("copyGccLibPath", "build/soong/scripts/copygcclib.sh")
+	_ = pctx.SourcePathVariable("copyGccLibPath", "build/soong/scripts/copygcclib.sh")
 
 	copyGccLib = pctx.AndroidStaticRule("copyGccLib",
 		blueprint.RuleParams{
@@ -139,7 +139,7 @@ var (
 		},
 		"ccCmd", "cFlags", "libName")
 
-	tocPath = pctx.SourcePathVariable("tocPath", "build/soong/scripts/toc.sh")
+	_ = pctx.SourcePathVariable("tocPath", "build/soong/scripts/toc.sh")
 
 	toc = pctx.AndroidStaticRule("toc",
 		blueprint.RuleParams{
@@ -159,7 +159,7 @@ var (
 		},
 		"cFlags", "tidyFlags")
 
-	yasmCmd = pctx.SourcePathVariable("yasmCmd", "prebuilts/misc/${config.HostPrebuiltTag}/yasm/yasm")
+	_ = pctx.SourcePathVariable("yasmCmd", "prebuilts/misc/${config.HostPrebuiltTag}/yasm/yasm")
 
 	yasm = pctx.AndroidStaticRule("yasm",
 		blueprint.RuleParams{
@@ -200,6 +200,8 @@ type builderFlags struct {
 	clang       bool
 	tidy        bool
 	coverage    bool
+
+	systemIncludeFlags string
 
 	groupStaticLibs bool
 
@@ -244,9 +246,25 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 		coverageFiles = make(android.Paths, 0, len(srcFiles))
 	}
 
-	cflags := flags.globalFlags + " " + flags.cFlags + " " + flags.conlyFlags
-	cppflags := flags.globalFlags + " " + flags.cFlags + " " + flags.cppFlags
-	asflags := flags.globalFlags + " " + flags.asFlags
+	cflags := strings.Join([]string{
+		flags.globalFlags,
+		flags.systemIncludeFlags,
+		flags.cFlags,
+		flags.conlyFlags,
+	}, " ")
+
+	cppflags := strings.Join([]string{
+		flags.globalFlags,
+		flags.systemIncludeFlags,
+		flags.cFlags,
+		flags.cppFlags,
+	}, " ")
+
+	asflags := strings.Join([]string{
+		flags.globalFlags,
+		flags.systemIncludeFlags,
+		flags.asFlags,
+	}, " ")
 
 	if flags.clang {
 		cflags += " ${config.NoOverrideClangGlobalCflags}"

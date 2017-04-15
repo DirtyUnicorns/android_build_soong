@@ -716,17 +716,19 @@ func (a *ModuleBase) setArchProperties(ctx BottomUpMutatorContext) {
 				prefix := "target.android32"
 				a.appendProperties(ctx, genProps, targetProp, field, prefix)
 			}
-		}
 
-		if arch.ArchType == X86 && hasArmAbi(arch) {
-			field := "Arm_on_x86"
-			prefix := "target.arm_on_x86"
-			a.appendProperties(ctx, genProps, targetProp, field, prefix)
-		}
-		if arch.ArchType == X86_64 && hasArmAbi(arch) {
-			field := "Arm_on_x86_64"
-			prefix := "target.arm_on_x86_64"
-			a.appendProperties(ctx, genProps, targetProp, field, prefix)
+			if arch.ArchType == X86 && (hasArmAbi(arch) ||
+				hasArmAndroidArch(ctx.AConfig().Targets[Device])) {
+				field := "Arm_on_x86"
+				prefix := "target.arm_on_x86"
+				a.appendProperties(ctx, genProps, targetProp, field, prefix)
+			}
+			if arch.ArchType == X86_64 && (hasArmAbi(arch) ||
+				hasArmAndroidArch(ctx.AConfig().Targets[Device])) {
+				field := "Arm_on_x86_64"
+				prefix := "target.arm_on_x86_64"
+				a.appendProperties(ctx, genProps, targetProp, field, prefix)
+			}
 		}
 	}
 }
@@ -835,6 +837,16 @@ func hasArmAbi(arch Arch) bool {
 	return false
 }
 
+// hasArmArch returns true if targets has at least arm Android arch
+func hasArmAndroidArch(targets []Target) bool {
+	for _, target := range targets {
+		if target.Os == Android && target.Arch.ArchType == Arm {
+			return true
+		}
+	}
+	return false
+}
+
 type archConfig struct {
 	arch        string
 	archVariant string
@@ -856,8 +868,10 @@ func getMegaDeviceConfig() []archConfig {
 		{"arm", "armv7-a-neon", "cortex-a53.a57", []string{"armeabi-v7a"}},
 		{"arm", "armv7-a-neon", "denver", []string{"armeabi-v7a"}},
 		{"arm", "armv7-a-neon", "krait", []string{"armeabi-v7a"}},
+		{"arm", "armv7-a-neon", "kryo", []string{"armeabi-v7a"}},
 		{"arm64", "armv8-a", "cortex-a53", []string{"arm64-v8a"}},
 		{"arm64", "armv8-a", "denver64", []string{"arm64-v8a"}},
+		{"arm64", "armv8-a", "kryo", []string{"arm64-v8a"}},
 		{"mips", "mips32-fp", "", []string{"mips"}},
 		{"mips", "mips32r2-fp", "", []string{"mips"}},
 		{"mips", "mips32r2-fp-xburst", "", []string{"mips"}},

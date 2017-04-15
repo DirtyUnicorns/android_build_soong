@@ -113,6 +113,18 @@ type BaseCompilerProperties struct {
 		// release builds
 		Cflags []string `android:"arch_variant"`
 	} `android:"arch_variant"`
+
+	Target struct {
+		Vendor struct {
+			// list of source files that should only be used in the
+			// vendor variant of the C/C++ module.
+			Srcs []string
+
+			// list of source files that should not be used to
+			// build the vendor variant of the C/C++ module.
+			Exclude_srcs []string
+		}
+	}
 }
 
 func NewBaseCompiler() *baseCompiler {
@@ -194,23 +206,23 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 	}
 
 	if !ctx.noDefaultCompilerFlags() {
+		flags.GlobalFlags = append(flags.GlobalFlags, "-I"+android.PathForModuleSrc(ctx).String())
+
 		if !(ctx.sdk() || ctx.vndk()) || ctx.Host() {
-			flags.GlobalFlags = append(flags.GlobalFlags,
+			flags.SystemIncludeFlags = append(flags.SystemIncludeFlags,
 				"${config.CommonGlobalIncludes}",
 				"${config.CommonGlobalSystemIncludes}",
 				tc.IncludeFlags(),
 				"${config.CommonNativehelperInclude}")
 		}
-
-		flags.GlobalFlags = append(flags.GlobalFlags, "-I"+android.PathForModuleSrc(ctx).String())
 	}
 
-	if ctx.sdk() || ctx.vndk() {
+	if ctx.sdk() {
 		// The NDK headers are installed to a common sysroot. While a more
 		// typical Soong approach would be to only make the headers for the
 		// library you're using available, we're trying to emulate the NDK
 		// behavior here, and the NDK always has all the NDK headers available.
-		flags.GlobalFlags = append(flags.GlobalFlags,
+		flags.SystemIncludeFlags = append(flags.SystemIncludeFlags,
 			"-isystem "+getCurrentIncludePath(ctx).String(),
 			"-isystem "+getCurrentIncludePath(ctx).Join(ctx, tc.ClangTriple()).String())
 
@@ -230,7 +242,12 @@ func (compiler *baseCompiler) compilerFlags(ctx ModuleContext, flags Flags) Flag
 		legacyIncludes := fmt.Sprintf(
 			"prebuilts/ndk/current/platforms/android-%s/arch-%s/usr/include",
 			ctx.sdkVersion(), ctx.Arch().ArchType.String())
-		flags.GlobalFlags = append(flags.GlobalFlags, "-isystem "+legacyIncludes)
+		flags.SystemIncludeFlags = append(flags.SystemIncludeFlags, "-isystem "+legacyIncludes)
+	}
+
+	if ctx.vndk() {
+		flags.GlobalFlags = append(flags.GlobalFlags,
+			"-D__ANDROID_API__=__ANDROID_API_FUTURE__", "-D__ANDROID_VNDK__")
 	}
 
 	instructionSet := compiler.Properties.Instruction_set
@@ -412,7 +429,7 @@ func (compiler *baseCompiler) hasSrcExt(ext string) bool {
 var gnuToCReplacer = strings.NewReplacer("gnu", "c")
 
 func ndkPathDeps(ctx ModuleContext) android.Paths {
-	if ctx.sdk() || ctx.vndk() {
+	if ctx.sdk() {
 		// The NDK sysroot timestamp file depends on all the NDK sysroot files
 		// (headers and libraries).
 		return android.Paths{getNdkSysrootTimestampFile(ctx)}
@@ -423,6 +440,14 @@ func ndkPathDeps(ctx ModuleContext) android.Paths {
 func (compiler *baseCompiler) compile(ctx ModuleContext, flags Flags, deps PathDeps) Objects {
 	pathDeps := deps.GeneratedHeaders
 	pathDeps = append(pathDeps, ndkPathDeps(ctx)...)
+
+	if ctx.vndk() {
+		compiler.Properties.Srcs = append(compiler.Properties.Srcs,
+			compiler.Properties.Target.Vendor.Srcs...)
+
+		compiler.Properties.Exclude_srcs = append(compiler.Properties.Exclude_srcs,
+			compiler.Properties.Target.Vendor.Exclude_srcs...)
+	}
 
 	srcs := ctx.ExpandSources(compiler.Properties.Srcs, compiler.Properties.Exclude_srcs)
 	srcs = append(srcs, deps.GeneratedSources...)

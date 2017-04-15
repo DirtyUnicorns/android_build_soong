@@ -29,6 +29,7 @@ var rewriteProperties = map[string](func(variableAssignmentContext) error){
 	"LOCAL_C_INCLUDES":            localIncludeDirs,
 	"LOCAL_EXPORT_C_INCLUDE_DIRS": exportIncludeDirs,
 	"LOCAL_LDFLAGS":               ldflags,
+	"LOCAL_MODULE_CLASS":          prebuiltClass,
 	"LOCAL_MODULE_STEM":           stem,
 	"LOCAL_MODULE_HOST_OS":        hostOs,
 	"LOCAL_SRC_FILES":             srcFiles,
@@ -40,7 +41,9 @@ var rewriteProperties = map[string](func(variableAssignmentContext) error){
 	// skip functions
 	"LOCAL_ADDITIONAL_DEPENDENCIES": skip, // TODO: check for only .mk files?
 	"LOCAL_CPP_EXTENSION":           skip,
+	"LOCAL_MODULE_SUFFIX":           skip, // TODO
 	"LOCAL_PATH":                    skip, // Nothing to do, except maybe avoid the "./" in paths?
+	"LOCAL_PRELINK_MODULE":          skip, // Already phased out
 }
 
 // adds a group of properties all having the same type
@@ -54,7 +57,6 @@ func init() {
 	addStandardProperties(bpparser.StringType,
 		map[string]string{
 			"LOCAL_MODULE":               "name",
-			"LOCAL_MODULE_CLASS":         "class",
 			"LOCAL_CXX_STL":              "stl",
 			"LOCAL_STRIP_MODULE":         "strip",
 			"LOCAL_MULTILIB":             "compile_multilib",
@@ -67,12 +69,12 @@ func init() {
 			"LOCAL_PACKAGE_NAME":         "name",
 			"LOCAL_MODULE_RELATIVE_PATH": "relative_install_path",
 			"LOCAL_PROTOC_OPTIMIZE_TYPE": "proto.type",
-			"LOCAL_HEADER_LIBRARIES":     "header_libs",
 			"LOCAL_MODULE_OWNER":         "owner",
 		})
 	addStandardProperties(bpparser.ListType,
 		map[string]string{
 			"LOCAL_SRC_FILES_EXCLUDE":             "exclude_srcs",
+			"LOCAL_HEADER_LIBRARIES":              "header_libs",
 			"LOCAL_SHARED_LIBRARIES":              "shared_libs",
 			"LOCAL_STATIC_LIBRARIES":              "static_libs",
 			"LOCAL_WHOLE_STATIC_LIBRARIES":        "whole_static_libs",
@@ -88,6 +90,7 @@ func init() {
 			"LOCAL_YACCFLAGS":                     "yaccflags",
 			"LOCAL_SANITIZE_RECOVER":              "sanitize.recover",
 			"LOCAL_LOGTAGS_FILES":                 "logtags",
+			"LOCAL_EXPORT_HEADER_LIBRARY_HEADERS": "export_header_lib_headers",
 			"LOCAL_EXPORT_SHARED_LIBRARY_HEADERS": "export_shared_lib_headers",
 			"LOCAL_EXPORT_STATIC_LIBRARY_HEADERS": "export_static_lib_headers",
 			"LOCAL_INIT_RC":                       "init_rc",
@@ -103,6 +106,7 @@ func init() {
 			"LOCAL_AIDL_INCLUDES":         "aidl_includes",
 			"LOCAL_AAPT_FLAGS":            "aaptflags",
 			"LOCAL_PACKAGE_SPLITS":        "package_splits",
+			"LOCAL_COMPATIBILITY_SUITE":   "test_suites",
 		})
 	addStandardProperties(bpparser.BoolType,
 		map[string]string{
@@ -117,8 +121,8 @@ func init() {
 			"LOCAL_NO_STANDARD_LIBRARIES":   "no_standard_libraries",
 			"LOCAL_PACK_MODULE_RELOCATIONS": "pack_relocations",
 			"LOCAL_TIDY":                    "tidy",
-			"LOCAL_USE_VNDK":                "use_vndk",
 			"LOCAL_PROPRIETARY_MODULE":      "proprietary",
+			"LOCAL_VENDOR_MODULE":           "vendor",
 
 			"LOCAL_EXPORT_PACKAGE_RESOURCES": "export_package_resources",
 		})
@@ -462,6 +466,17 @@ func sanitize(ctx variableAssignmentContext) error {
 	return err
 }
 
+func prebuiltClass(ctx variableAssignmentContext) error {
+	class := ctx.mkvalue.Value(nil)
+	if v, ok := prebuiltTypes[class]; ok {
+		ctx.file.scope.Set("BUILD_PREBUILT", v)
+	} else {
+		// reset to default
+		ctx.file.scope.Set("BUILD_PREBUILT", "prebuilt")
+	}
+	return nil
+}
+
 func ldflags(ctx variableAssignmentContext) error {
 	val, err := makeVariableToBlueprint(ctx.file, ctx.mkvalue, bpparser.ListType)
 	if err != nil {
@@ -658,8 +673,13 @@ var moduleTypes = map[string]string{
 	"BUILD_HOST_JAVA_LIBRARY":        "java_library_host",
 	"BUILD_HOST_DALVIK_JAVA_LIBRARY": "java_library_host_dalvik",
 	"BUILD_PACKAGE":                  "android_app",
+}
 
-	"BUILD_PREBUILT": "prebuilt",
+var prebuiltTypes = map[string]string{
+	"SHARED_LIBRARIES": "cc_prebuilt_library_shared",
+	"STATIC_LIBRARIES": "cc_prebuilt_library_static",
+	"EXECUTABLES":      "cc_prebuilt_binary",
+	"JAVA_LIBRARIES":   "prebuilt_java_library",
 }
 
 var soongModuleTypes = map[string]bool{}
@@ -673,6 +693,9 @@ func androidScope() mkparser.Scope {
 
 	for k, v := range moduleTypes {
 		globalScope.Set(k, v)
+		soongModuleTypes[v] = true
+	}
+	for _, v := range prebuiltTypes {
 		soongModuleTypes[v] = true
 	}
 
