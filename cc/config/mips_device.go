@@ -52,7 +52,7 @@ var (
 
 	mipsClangCflags = append(mipsCflags, []string{
 		"-fPIC",
-		"-fno-integrated-as",
+		"-fintegrated-as",
 	}...)
 
 	mipsCppflags = []string{
@@ -92,7 +92,6 @@ var (
 			"-mfp32",
 			"-modd-spreg",
 			"-mno-fused-madd",
-			"-Wa,-mmxu",
 			"-mno-synci",
 		},
 		"mips32r2dsp-fp": []string{
@@ -133,7 +132,12 @@ func init() {
 		"mips32r2dsp_fp",
 		"mips32r2dspr2_fp",
 		"mips32r6")
-	android.RegisterArchFeatures(android.Mips, "rev6")
+	android.RegisterArchFeatures(android.Mips,
+		"dspr2",
+		"rev6",
+		"msa")
+	android.RegisterArchVariantFeatures(android.Mips, "mips32r2dspr2_fp",
+		"dspr2")
 	android.RegisterArchVariantFeatures(android.Mips, "mips32r6",
 		"rev6")
 

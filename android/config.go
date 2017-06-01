@@ -249,6 +249,20 @@ func (c *config) BlueprintToolLocation() string {
 	return filepath.Join(c.buildDir, "host", c.PrebuiltOS(), "bin")
 }
 
+// HostSystemTool looks for non-hermetic tools from the system we're running on.
+// Generally shouldn't be used, but useful to find the XCode SDK, etc.
+func (c *config) HostSystemTool(name string) string {
+	for _, dir := range filepath.SplitList(c.Getenv("PATH")) {
+		path := filepath.Join(dir, name)
+		if s, err := os.Stat(path); err != nil {
+			continue
+		} else if m := s.Mode(); !s.IsDir() && m&0111 != 0 {
+			return path
+		}
+	}
+	return name
+}
+
 // PrebuiltOS returns the name of the host OS used in prebuilts directories
 func (c *config) PrebuiltOS() string {
 	switch runtime.GOOS {
@@ -289,7 +303,7 @@ func (c *config) Getenv(key string) string {
 		if c.envFrozen {
 			panic("Cannot access new environment variables after envdeps are frozen")
 		}
-		val = os.Getenv(key)
+		val, _ = originalEnv[key]
 		c.envDeps[key] = val
 	}
 	return val
@@ -390,7 +404,12 @@ func (c *config) DevicePrefer32BitExecutables() bool {
 }
 
 func (c *config) SkipDeviceInstall() bool {
-	return c.EmbeddedInMake() || Bool(c.Mega_device)
+	return c.EmbeddedInMake()
+}
+
+func (c *config) SkipMegaDeviceInstall(path string) bool {
+	return Bool(c.Mega_device) &&
+		strings.HasPrefix(path, filepath.Join(c.buildDir, "target", "product"))
 }
 
 func (c *config) SanitizeHost() []string {
@@ -406,7 +425,11 @@ func (c *config) SanitizeDeviceArch() []string {
 }
 
 func (c *config) EnableCFI() bool {
-	return Bool(c.ProductVariables.EnableCFI)
+	if c.ProductVariables.EnableCFI == nil {
+		return true
+	} else {
+		return *c.ProductVariables.EnableCFI
+	}
 }
 
 func (c *config) Android64() bool {
@@ -443,7 +466,7 @@ func (c *config) LibartImgDeviceBaseAddress() string {
 	default:
 		return "0x70000000"
 	case Mips, Mips64:
-		return "0x64000000"
+		return "0x5C000000"
 	}
 }
 

@@ -16,6 +16,7 @@ package cc
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/google/blueprint"
@@ -102,6 +103,8 @@ type SanitizeProperties struct {
 
 type sanitize struct {
 	Properties SanitizeProperties
+
+	runtimeLibrary string
 }
 
 func (sanitize *sanitize) props() []interface{} {
@@ -182,6 +185,12 @@ func (sanitize *sanitize) begin(ctx BaseModuleContext) {
 
 	// Also disable CFI for arm32 until b/35157333 is fixed.
 	if ctx.Arch().ArchType == android.Arm {
+		s.Cfi = nil
+		s.Diag.Cfi = nil
+	}
+
+	// Also disable CFI if ASAN is enabled.
+	if Bool(s.Address) {
 		s.Cfi = nil
 		s.Diag.Cfi = nil
 	}
@@ -339,11 +348,6 @@ func (sanitize *sanitize) flags(ctx ModuleContext, flags Flags) Flags {
 		}
 	}
 
-	if sanitize.Properties.Sanitize.Recover != nil {
-		flags.CFlags = append(flags.CFlags, "-fsanitize-recover="+
-			strings.Join(sanitize.Properties.Sanitize.Recover, ","))
-	}
-
 	if len(sanitizers) > 0 {
 		sanitizeArg := "-fsanitize=" + strings.Join(sanitizers, ",")
 		flags.CFlags = append(flags.CFlags, sanitizeArg)
@@ -361,6 +365,11 @@ func (sanitize *sanitize) flags(ctx ModuleContext, flags Flags) Flags {
 	}
 	// FIXME: enable RTTI if diag + (cfi or vptr)
 
+	if sanitize.Properties.Sanitize.Recover != nil {
+		flags.CFlags = append(flags.CFlags, "-fsanitize-recover="+
+			strings.Join(sanitize.Properties.Sanitize.Recover, ","))
+	}
+
 	// Link a runtime library if needed.
 	runtimeLibrary := ""
 	if Bool(sanitize.Properties.Sanitize.Address) {
@@ -371,7 +380,10 @@ func (sanitize *sanitize) flags(ctx ModuleContext, flags Flags) Flags {
 
 	// ASan runtime library must be the first in the link order.
 	if runtimeLibrary != "" {
-		flags.libFlags = append([]string{"${config.ClangAsanLibDir}/" + runtimeLibrary}, flags.libFlags...)
+		flags.libFlags = append([]string{
+			"${config.ClangAsanLibDir}/" + runtimeLibrary + ctx.toolchain().ShlibSuffix(),
+		}, flags.libFlags...)
+		sanitize.runtimeLibrary = runtimeLibrary
 	}
 
 	blacklist := android.OptionalPathForModuleSrc(ctx, sanitize.Properties.Sanitize.Blacklist)
@@ -381,6 +393,16 @@ func (sanitize *sanitize) flags(ctx ModuleContext, flags Flags) Flags {
 	}
 
 	return flags
+}
+
+func (sanitize *sanitize) AndroidMk(ctx AndroidMkContext, ret *android.AndroidMkData) {
+	ret.Extra = append(ret.Extra, func(w io.Writer, outputFile android.Path) error {
+		if sanitize.runtimeLibrary != "" {
+			fmt.Fprintln(w, "LOCAL_SHARED_LIBRARIES += "+sanitize.runtimeLibrary)
+		}
+
+		return nil
+	})
 }
 
 func (sanitize *sanitize) inSanitizerDir() bool {

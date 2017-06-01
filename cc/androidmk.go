@@ -76,6 +76,9 @@ func (c *Module) AndroidMk() (ret android.AndroidMkData, err error) {
 
 	c.subAndroidMk(&ret, c.compiler)
 	c.subAndroidMk(&ret, c.linker)
+	if c.sanitize != nil {
+		c.subAndroidMk(&ret, c.sanitize)
+	}
 	c.subAndroidMk(&ret, c.installer)
 
 	if c.vndk() {
@@ -141,6 +144,14 @@ func (library *libraryDecorator) AndroidMk(ctx AndroidMkContext, ret *android.An
 
 	ret.Extra = append(ret.Extra, func(w io.Writer, outputFile android.Path) error {
 		library.androidMkWriteExportedFlags(w)
+		fmt.Fprintln(w, "LOCAL_ADDITIONAL_DEPENDENCIES := ")
+		if library.sAbiOutputFile.Valid() {
+			fmt.Fprintln(w, "LOCAL_ADDITIONAL_DEPENDENCIES += ", library.sAbiOutputFile.String())
+			if library.sAbiDiff.Valid() && !library.static() {
+				fmt.Fprintln(w, "LOCAL_ADDITIONAL_DEPENDENCIES += ", library.sAbiDiff.String())
+				fmt.Fprintln(w, "HEADER_ABI_DIFFS += ", library.sAbiDiff.String())
+			}
+		}
 
 		fmt.Fprintln(w, "LOCAL_BUILT_MODULE_STEM := $(LOCAL_MODULE)"+outputFile.Ext())
 
@@ -193,6 +204,14 @@ func (binary *binaryDecorator) AndroidMk(ctx AndroidMkContext, ret *android.Andr
 
 func (benchmark *benchmarkDecorator) AndroidMk(ctx AndroidMkContext, ret *android.AndroidMkData) {
 	ctx.subAndroidMk(ret, benchmark.binaryDecorator)
+	ret.Class = "NATIVE_TESTS"
+	ret.Extra = append(ret.Extra, func(w io.Writer, outputFile android.Path) error {
+		if len(benchmark.Properties.Test_suites) > 0 {
+			fmt.Fprintln(w, "LOCAL_COMPATIBILITY_SUITE :=",
+				strings.Join(benchmark.Properties.Test_suites, " "))
+		}
+		return nil
+	})
 }
 
 func (test *testBinary) AndroidMk(ctx AndroidMkContext, ret *android.AndroidMkData) {
