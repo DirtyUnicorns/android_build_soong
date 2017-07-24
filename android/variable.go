@@ -67,6 +67,10 @@ type variableProperties struct {
 		Override_rs_driver struct {
 			Cflags []string
 		}
+		
+		Has_legacy_camera_hal1 struct {
+			Cflags []string
+		}
 
 		// treble is true when a build is a Treble compliant device.  This is automatically set when
 		// a build is shipped with Android O, but can be overriden.  This controls such things as
@@ -141,6 +145,7 @@ type productVariables struct {
 	Eng                        *bool `json:",omitempty"`
 	EnableCFI                  *bool `json:",omitempty"`
 	Device_uses_hwc2           *bool `json:",omitempty"`
+	Has_legacy_camera_hal1     *bool `json:",omitempty"`
 	Treble                     *bool `json:",omitempty"`
 	Pdk                        *bool `json:",omitempty"`
 
