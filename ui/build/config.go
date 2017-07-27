@@ -21,6 +21,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"android/soong/shared"
 )
 
 type Config struct{ *configImpl }
@@ -50,6 +52,12 @@ func NewConfig(ctx Context, args ...string) Config {
 	ret := &configImpl{
 		environ: OsEnvironment(),
 	}
+
+	// Sane default matching ninja
+	ret.parallel = runtime.NumCPU() + 2
+	ret.keepGoing = 1
+
+	ret.parseArgs(ctx, args)
 
 	// Make sure OUT_DIR is set appropriately
 	if outDir, ok := ret.environ.Get("OUT_DIR"); ok {
@@ -90,14 +98,15 @@ func NewConfig(ctx Context, args ...string) Config {
 		// Variables that have caused problems in the past
 		"DISPLAY",
 		"GREP_OPTIONS",
+
+		// Drop make flags
+		"MAKEFLAGS",
+		"MAKELEVEL",
+		"MFLAGS",
 	)
 
 	// Tell python not to spam the source tree with .pyc files.
 	ret.environ.Set("PYTHONDONTWRITEBYTECODE", "1")
-
-	// Sane default matching ninja
-	ret.parallel = runtime.NumCPU() + 2
-	ret.keepGoing = 1
 
 	// Precondition: the current directory is the top of the source tree
 	if _, err := os.Stat(srcDirFileCheck); err != nil {
@@ -133,38 +142,51 @@ func NewConfig(ctx Context, args ...string) Config {
 		log.Fatalln("Directory names containing spaces are not supported")
 	}
 
-	for _, arg := range args {
-		arg = strings.TrimSpace(arg)
+	return Config{ret}
+}
+
+func (c *configImpl) parseArgs(ctx Context, args []string) {
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
 		if arg == "--make-mode" {
 			continue
 		} else if arg == "showcommands" {
-			ret.verbose = true
+			c.verbose = true
 			continue
 		} else if arg == "dist" {
-			ret.dist = true
+			c.dist = true
 		}
 		if arg[0] == '-' {
-			var err error
+			parseArgNum := func(def int) int {
+				if len(arg) > 2 {
+					p, err := strconv.ParseUint(arg[2:], 10, 31)
+					if err != nil {
+						ctx.Fatalf("Failed to parse %q: %v", arg, err)
+					}
+					return int(p)
+				} else if i+1 < len(args) {
+					p, err := strconv.ParseUint(args[i+1], 10, 31)
+					if err == nil {
+						i++
+						return int(p)
+					}
+				}
+				return def
+			}
+
 			if arg[1] == 'j' {
-				// TODO: handle space between j and number
-				// Unnecessary if used with makeparallel
-				ret.parallel, err = strconv.Atoi(arg[2:])
+				c.parallel = parseArgNum(c.parallel)
 			} else if arg[1] == 'k' {
-				// TODO: handle space between k and number
-				// Unnecessary if used with makeparallel
-				ret.keepGoing, err = strconv.Atoi(arg[2:])
+				c.keepGoing = parseArgNum(0)
 			} else {
 				ctx.Fatalln("Unknown option:", arg)
 			}
-			if err != nil {
-				ctx.Fatalln("Argument error:", err, arg)
-			}
+		} else if k, v, ok := decodeKeyValue(arg); ok && len(k) > 0 {
+			c.environ.Set(k, v)
 		} else {
-			ret.arguments = append(ret.arguments, arg)
+			c.arguments = append(c.arguments, arg)
 		}
 	}
-
-	return Config{ret}
 }
 
 // Lunch configures the environment for a specific product similarly to the
@@ -250,6 +272,10 @@ func (c *configImpl) SoongOutDir() string {
 	return filepath.Join(c.OutDir(), "soong")
 }
 
+func (c *configImpl) TempDir() string {
+	return shared.TempDirForOutDir(c.SoongOutDir())
+}
+
 func (c *configImpl) KatiSuffix() string {
 	if c.katiSuffix != "" {
 		return c.katiSuffix
@@ -306,7 +332,7 @@ func (c *configImpl) UseGoma() bool {
 }
 
 // RemoteParallel controls how many remote jobs (i.e., commands which contain
-// gomacc) are run in parallel.  Note the paralleism of all other jobs is
+// gomacc) are run in parallel.  Note the parallelism of all other jobs is
 // still limited by Parallel()
 func (c *configImpl) RemoteParallel() int {
 	if v, ok := c.environ.Get("NINJA_REMOTE_NUM_JOBS"); ok {

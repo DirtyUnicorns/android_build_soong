@@ -52,6 +52,10 @@ type Config struct {
 	*config
 }
 
+func (c Config) BuildDir() string {
+	return c.buildDir
+}
+
 // A DeviceConfig object represents the configuration for a particular device being built.  For
 // now there will only be one of these, but in the future there may be multiple devices being
 // built
@@ -80,12 +84,13 @@ type config struct {
 
 	inMake bool
 
+	captureBuild bool // true for tests, saves build parameters for each module
+
 	OncePer
 }
 
 type deviceConfig struct {
-	config  *config
-	targets []Arch
+	config *config
 	OncePer
 }
 
@@ -163,9 +168,19 @@ func saveToConfigFile(config jsonConfigurable, filename string) error {
 
 // TestConfig returns a Config object suitable for using for tests
 func TestConfig(buildDir string) Config {
-	return Config{&config{
-		buildDir: buildDir,
-	}}
+	config := &config{
+		ProductVariables: productVariables{
+			DeviceName: stringPtr("test_device"),
+		},
+
+		buildDir:     buildDir,
+		captureBuild: true,
+	}
+	config.deviceConfig = &deviceConfig{
+		config: config,
+	}
+
+	return Config{config}
 }
 
 // New creates a new Config object.  The srcDir argument specifies the path to
@@ -178,15 +193,11 @@ func NewConfig(srcDir, buildDir string) (Config, error) {
 
 		srcDir:   srcDir,
 		buildDir: buildDir,
-
-		deviceConfig: &deviceConfig{},
 	}
 
-	deviceConfig := &deviceConfig{
+	config.deviceConfig = &deviceConfig{
 		config: config,
 	}
-
-	config.deviceConfig = deviceConfig
 
 	// Sanity check the build and source directories. This won't catch strange
 	// configurations with symlinks, but at least checks the obvious cases.
@@ -420,6 +431,10 @@ func (c *config) SanitizeDevice() []string {
 	return append([]string(nil), c.ProductVariables.SanitizeDevice...)
 }
 
+func (c *config) SanitizeDeviceDiag() []string {
+	return append([]string(nil), c.ProductVariables.SanitizeDeviceDiag...)
+}
+
 func (c *config) SanitizeDeviceArch() []string {
 	return append([]string(nil), c.ProductVariables.SanitizeDeviceArch...)
 }
@@ -462,7 +477,11 @@ func (c *config) LibartImgHostBaseAddress() string {
 }
 
 func (c *config) LibartImgDeviceBaseAddress() string {
-	switch c.Targets[Device][0].Arch.ArchType {
+	archType := Common
+	if len(c.Targets[Device]) > 0 {
+		archType = c.Targets[Device][0].Arch.ArchType
+	}
+	switch archType {
 	default:
 		return "0x70000000"
 	case Mips, Mips64:
@@ -500,6 +519,10 @@ func (c *deviceConfig) BtConfigIncludeDir() string {
 	return String(c.config.ProductVariables.BtConfigIncludeDir)
 }
 
+func (c *deviceConfig) DeviceKernelHeaderDirs() []string {
+	return c.config.ProductVariables.DeviceKernelHeaders
+}
+
 func (c *deviceConfig) NativeCoverageEnabled() bool {
 	return Bool(c.config.ProductVariables.NativeCoverage)
 }
@@ -507,20 +530,21 @@ func (c *deviceConfig) NativeCoverageEnabled() bool {
 func (c *deviceConfig) CoverageEnabledForPath(path string) bool {
 	coverage := false
 	if c.config.ProductVariables.CoveragePaths != nil {
-		for _, prefix := range *c.config.ProductVariables.CoveragePaths {
-			if strings.HasPrefix(path, prefix) {
-				coverage = true
-				break
-			}
+		if prefixInList(path, *c.config.ProductVariables.CoveragePaths) {
+			coverage = true
 		}
 	}
 	if coverage && c.config.ProductVariables.CoverageExcludePaths != nil {
-		for _, prefix := range *c.config.ProductVariables.CoverageExcludePaths {
-			if strings.HasPrefix(path, prefix) {
-				coverage = false
-				break
-			}
+		if prefixInList(path, *c.config.ProductVariables.CoverageExcludePaths) {
+			coverage = false
 		}
 	}
 	return coverage
+}
+
+func (c *config) IntegerOverflowDisabledForPath(path string) bool {
+	if c.ProductVariables.IntegerOverflowExcludePaths == nil {
+		return false
+	}
+	return prefixInList(path, *c.ProductVariables.IntegerOverflowExcludePaths)
 }

@@ -26,8 +26,6 @@ import (
 	"testing"
 
 	"android/soong/android"
-
-	"github.com/google/blueprint"
 )
 
 type pyBinary struct {
@@ -305,16 +303,18 @@ var (
 
 func TestPythonModule(t *testing.T) {
 	config, buildDir := setupBuildEnv(t)
-	defer tearDownBuildEnv()
-	android.TestPreDepsMutators(func(ctx android.RegisterMutatorsContext) {
-		ctx.BottomUp("version_split", versionSplitMutator()).Parallel()
-	})
+	defer tearDownBuildEnv(buildDir)
 	for _, d := range data {
 		t.Run(d.desc, func(t *testing.T) {
-			ctx := blueprint.NewContext()
-			android.RegisterTestMutators(ctx)
-			ctx.RegisterModuleType("python_library_host", PythonLibraryHostFactory)
-			ctx.RegisterModuleType("python_binary_host", PythonBinaryHostFactory)
+			ctx := android.NewTestContext()
+			ctx.PreDepsMutators(func(ctx android.RegisterMutatorsContext) {
+				ctx.BottomUp("version_split", versionSplitMutator()).Parallel()
+			})
+			ctx.RegisterModuleType("python_library_host",
+				android.ModuleFactoryAdaptor(PythonLibraryHostFactory))
+			ctx.RegisterModuleType("python_binary_host",
+				android.ModuleFactoryAdaptor(PythonBinaryHostFactory))
+			ctx.Register()
 			ctx.MockFileSystem(d.mockFiles)
 			_, testErrs := ctx.ParseBlueprintsFiles(bpFile)
 			fail(t, testErrs)
@@ -358,15 +358,12 @@ func expectErrors(t *testing.T, actErrs []error, expErrs []string) (testErrs []e
 	return
 }
 
-func expectModule(t *testing.T, ctx *blueprint.Context, buildDir, name, variant string,
+func expectModule(t *testing.T, ctx *android.TestContext, buildDir, name, variant string,
 	expPyRunfiles, expDepsPyRunfiles []string,
 	expParSpec string, expDepsParSpecs []string) (testErrs []error) {
-	module := findModule(ctx, name, variant)
-	if module == nil {
-		t.Fatalf("failed to find module %s!", name)
-	}
+	module := ctx.ModuleForTests(name, variant)
 
-	base, baseOk := module.(*pythonBaseModule)
+	base, baseOk := module.Module().(*pythonBaseModule)
 	if !baseOk {
 		t.Fatalf("%s is not Python module!", name)
 	}
@@ -432,18 +429,8 @@ func setupBuildEnv(t *testing.T) (config android.Config, buildDir string) {
 	return
 }
 
-func tearDownBuildEnv() {
-	os.RemoveAll(buildNamePrefix)
-}
-
-func findModule(ctx *blueprint.Context, name, variant string) blueprint.Module {
-	var ret blueprint.Module
-	ctx.VisitAllModules(func(m blueprint.Module) {
-		if ctx.ModuleName(m) == name && ctx.ModuleSubDir(m) == variant {
-			ret = m
-		}
-	})
-	return ret
+func tearDownBuildEnv(buildDir string) {
+	os.RemoveAll(buildDir)
 }
 
 func fail(t *testing.T, errs []error) {

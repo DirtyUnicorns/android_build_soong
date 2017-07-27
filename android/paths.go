@@ -39,6 +39,17 @@ type PathGlobContext interface {
 var _ PathContext = blueprint.SingletonContext(nil)
 var _ PathContext = blueprint.ModuleContext(nil)
 
+type ModuleInstallPathContext interface {
+	PathContext
+
+	androidBaseContext
+
+	InstallInData() bool
+	InstallInSanitizerDir() bool
+}
+
+var _ ModuleInstallPathContext = ModuleContext(nil)
+
 // errorfContext is the interface containing the Errorf method matching the
 // Errorf method in blueprint.SingletonContext.
 type errorfContext interface {
@@ -669,18 +680,20 @@ func PathForModuleRes(ctx ModuleContext, pathComponents ...string) ModuleResPath
 
 // PathForModuleInstall returns a Path representing the install path for the
 // module appended with paths...
-func PathForModuleInstall(ctx ModuleContext, pathComponents ...string) OutputPath {
+func PathForModuleInstall(ctx ModuleInstallPathContext, pathComponents ...string) OutputPath {
 	var outPaths []string
 	if ctx.Device() {
-		partition := "system"
-		if ctx.Vendor() {
+		var partition string
+		if ctx.InstallInData() {
+			partition = "data"
+		} else if ctx.Vendor() {
 			partition = ctx.DeviceConfig().VendorPath()
+		} else {
+			partition = "system"
 		}
 
 		if ctx.InstallInSanitizerDir() {
 			partition = "data/asan/" + partition
-		} else if ctx.InstallInData() {
-			partition = "data"
 		}
 		outPaths = []string{"target", "product", ctx.AConfig().DeviceName(), partition}
 	} else {

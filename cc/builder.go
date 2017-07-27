@@ -170,12 +170,12 @@ var (
 
 	sAbiLink = pctx.AndroidStaticRule("sAbiLink",
 		blueprint.RuleParams{
-			Command:        "$sAbiLinker -o ${out} $symbolFile -arch $arch -api $api $exportedHeaderFlags @${out}.rsp ",
+			Command:        "$sAbiLinker -o ${out} $symbolFilter -arch $arch -api $api $exportedHeaderFlags @${out}.rsp ",
 			CommandDeps:    []string{"$sAbiLinker"},
 			Rspfile:        "${out}.rsp",
 			RspfileContent: "${in}",
 		},
-		"symbolFile", "arch", "api", "exportedHeaderFlags")
+		"symbolFilter", "arch", "api", "exportedHeaderFlags")
 
 	_ = pctx.SourcePathVariable("sAbiDiffer", "prebuilts/build-tools/${config.HostPrebuiltTag}/bin/header-abi-diff")
 
@@ -206,26 +206,27 @@ func init() {
 }
 
 type builderFlags struct {
-	globalFlags string
-	arFlags     string
-	asFlags     string
-	cFlags      string
-	conlyFlags  string
-	cppFlags    string
-	ldFlags     string
-	libFlags    string
-	yaccFlags   string
-	protoFlags  string
-	tidyFlags   string
-	sAbiFlags   string
-	yasmFlags   string
-	aidlFlags   string
-	rsFlags     string
-	toolchain   config.Toolchain
-	clang       bool
-	tidy        bool
-	coverage    bool
-	sAbiDump    bool
+	globalFlags   string
+	arFlags       string
+	asFlags       string
+	cFlags        string
+	toolingCFlags string // Seperate set of Cflags for clang LibTooling tools
+	conlyFlags    string
+	cppFlags      string
+	ldFlags       string
+	libFlags      string
+	yaccFlags     string
+	protoFlags    string
+	tidyFlags     string
+	sAbiFlags     string
+	yasmFlags     string
+	aidlFlags     string
+	rsFlags       string
+	toolchain     config.Toolchain
+	clang         bool
+	tidy          bool
+	coverage      bool
+	sAbiDump      bool
 
 	systemIncludeFlags string
 
@@ -275,25 +276,40 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 		coverageFiles = make(android.Paths, 0, len(srcFiles))
 	}
 
-	cflags := strings.Join([]string{
+	commonFlags := strings.Join([]string{
 		flags.globalFlags,
 		flags.systemIncludeFlags,
+	}, " ")
+
+	toolingCflags := strings.Join([]string{
+		commonFlags,
+		flags.toolingCFlags,
+		flags.conlyFlags,
+	}, " ")
+
+	cflags := strings.Join([]string{
+		commonFlags,
 		flags.cFlags,
 		flags.conlyFlags,
 	}, " ")
 
+	toolingCppflags := strings.Join([]string{
+		commonFlags,
+		flags.toolingCFlags,
+		flags.cppFlags,
+	}, " ")
+
 	cppflags := strings.Join([]string{
-		flags.globalFlags,
-		flags.systemIncludeFlags,
+		commonFlags,
 		flags.cFlags,
 		flags.cppFlags,
 	}, " ")
 
 	asflags := strings.Join([]string{
-		flags.globalFlags,
-		flags.systemIncludeFlags,
+		commonFlags,
 		flags.asFlags,
 	}, " ")
+
 	var sAbiDumpFiles android.Paths
 	if flags.sAbiDump && flags.clang {
 		sAbiDumpFiles = make(android.Paths, 0, len(srcFiles))
@@ -301,7 +317,9 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 
 	if flags.clang {
 		cflags += " ${config.NoOverrideClangGlobalCflags}"
+		toolingCflags += " ${config.NoOverrideClangGlobalCflags}"
 		cppflags += " ${config.NoOverrideClangGlobalCflags}"
+		toolingCppflags += " ${config.NoOverrideClangGlobalCflags}"
 	} else {
 		cflags += " ${config.NoOverrideGlobalCflags}"
 		cppflags += " ${config.NoOverrideGlobalCflags}"
@@ -327,6 +345,7 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 		}
 
 		var moduleCflags string
+		var moduleToolingCflags string
 		var ccCmd string
 		tidy := flags.tidy && flags.clang
 		coverage := flags.coverage
@@ -342,9 +361,11 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 		case ".c":
 			ccCmd = "gcc"
 			moduleCflags = cflags
+			moduleToolingCflags = toolingCflags
 		case ".cpp", ".cc", ".mm":
 			ccCmd = "g++"
 			moduleCflags = cppflags
+			moduleToolingCflags = toolingCppflags
 		default:
 			ctx.ModuleErrorf("File %s has unknown extension", srcFile)
 			continue
@@ -402,7 +423,7 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 				// support exporting dependencies.
 				Implicit: objFile,
 				Args: map[string]string{
-					"cFlags":    moduleCflags,
+					"cFlags":    moduleToolingCflags,
 					"tidyFlags": flags.tidyFlags,
 				},
 			})
@@ -419,7 +440,7 @@ func TransformSourceToObj(ctx android.ModuleContext, subdir string, srcFiles and
 				Input:       srcFile,
 				Implicit:    objFile,
 				Args: map[string]string{
-					"cFlags":     moduleCflags,
+					"cFlags":     moduleToolingCflags,
 					"exportDirs": flags.sAbiFlags,
 				},
 			})
@@ -613,14 +634,17 @@ func TransformObjToDynamicBinary(ctx android.ModuleContext,
 
 // Generate a rule to combine .dump sAbi dump files from multiple source files
 // into a single .ldump sAbi dump file
-func TransformDumpToLinkedDump(ctx android.ModuleContext, sAbiDumps android.Paths,
+func TransformDumpToLinkedDump(ctx android.ModuleContext, sAbiDumps android.Paths, soFile android.Path,
 	symbolFile android.OptionalPath, apiLevel, baseName, exportedHeaderFlags string) android.OptionalPath {
 	outputFile := android.PathForModuleOut(ctx, baseName+".lsdump")
-	var symbolFileStr string
+	var symbolFilterStr string
 	var linkedDumpDep android.Path
 	if symbolFile.Valid() {
-		symbolFileStr = "-v " + symbolFile.Path().String()
+		symbolFilterStr = "-v " + symbolFile.Path().String()
 		linkedDumpDep = symbolFile.Path()
+	} else {
+		linkedDumpDep = soFile
+		symbolFilterStr = "-so " + soFile.String()
 	}
 	ctx.ModuleBuild(pctx, android.ModuleBuildParams{
 		Rule:        sAbiLink,
@@ -629,9 +653,9 @@ func TransformDumpToLinkedDump(ctx android.ModuleContext, sAbiDumps android.Path
 		Inputs:      sAbiDumps,
 		Implicit:    linkedDumpDep,
 		Args: map[string]string{
-			"symbolFile": symbolFileStr,
-			"arch":       ctx.Arch().ArchType.Name,
-			"api":        apiLevel,
+			"symbolFilter": symbolFilterStr,
+			"arch":         ctx.Arch().ArchType.Name,
+			"api":          apiLevel,
 			"exportedHeaderFlags": exportedHeaderFlags,
 		},
 	})

@@ -20,8 +20,6 @@ import (
 	"strings"
 
 	"android/soong/android"
-
-	"github.com/google/blueprint"
 )
 
 type TestProperties struct {
@@ -57,31 +55,31 @@ func init() {
 }
 
 // Module factory for tests
-func testFactory() (blueprint.Module, []interface{}) {
+func testFactory() android.Module {
 	module := NewTest(android.HostAndDeviceSupported)
 	return module.Init()
 }
 
 // Module factory for test libraries
-func testLibraryFactory() (blueprint.Module, []interface{}) {
+func testLibraryFactory() android.Module {
 	module := NewTestLibrary(android.HostAndDeviceSupported)
 	return module.Init()
 }
 
 // Module factory for benchmarks
-func benchmarkFactory() (blueprint.Module, []interface{}) {
+func benchmarkFactory() android.Module {
 	module := NewBenchmark(android.HostAndDeviceSupported)
 	return module.Init()
 }
 
 // Module factory for host tests
-func testHostFactory() (blueprint.Module, []interface{}) {
+func testHostFactory() android.Module {
 	module := NewTest(android.HostSupported)
 	return module.Init()
 }
 
 // Module factory for host benchmarks
-func benchmarkHostFactory() (blueprint.Module, []interface{}) {
+func benchmarkHostFactory() android.Module {
 	module := NewBenchmark(android.HostSupported)
 	return module.Init()
 }
@@ -300,6 +298,10 @@ func NewTestLibrary(hod android.HostOrDeviceSupported) *Module {
 }
 
 type BenchmarkProperties struct {
+	// list of files or filegroup modules that provide data that should be installed alongside
+	// the test
+	Data []string
+
 	// list of compatibility suites (for example "cts", "vts") that the module should be
 	// installed into.
 	Test_suites []string
@@ -308,6 +310,7 @@ type BenchmarkProperties struct {
 type benchmarkDecorator struct {
 	*binaryDecorator
 	Properties BenchmarkProperties
+	data       android.Paths
 }
 
 func (benchmark *benchmarkDecorator) linkerInit(ctx BaseModuleContext) {
@@ -326,12 +329,14 @@ func (benchmark *benchmarkDecorator) linkerProps() []interface{} {
 }
 
 func (benchmark *benchmarkDecorator) linkerDeps(ctx DepsContext, deps Deps) Deps {
+	android.ExtractSourcesDeps(ctx, benchmark.Properties.Data)
 	deps = benchmark.binaryDecorator.linkerDeps(ctx, deps)
 	deps.StaticLibs = append(deps.StaticLibs, "libgoogle-benchmark")
 	return deps
 }
 
 func (benchmark *benchmarkDecorator) install(ctx ModuleContext, file android.Path) {
+	benchmark.data = ctx.ExpandSources(benchmark.Properties.Data, nil)
 	benchmark.binaryDecorator.baseInstaller.dir = filepath.Join("nativetest", ctx.ModuleName())
 	benchmark.binaryDecorator.baseInstaller.dir64 = filepath.Join("nativetest64", ctx.ModuleName())
 	benchmark.binaryDecorator.baseInstaller.install(ctx, file)

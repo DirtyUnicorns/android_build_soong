@@ -18,6 +18,7 @@ bootstrap_go_package {
     deps: [
         "soong-ui-logger",
         "soong-ui-tracer",
+        "soong-shared",
     ],
     srcs: [
         "build.go",
@@ -26,7 +27,6 @@ bootstrap_go_package {
         "context.go",
         "environment.go",
         "exec.go",
-        "java.go",
         "kati.go",
         "make.go",
         "ninja.go",
@@ -36,6 +36,7 @@ bootstrap_go_package {
         "util.go",
     ],
     testSrcs: [
+        "config_test.go",
         "environment_test.go",
         "util_test.go",
         "proc_sync_test.go",

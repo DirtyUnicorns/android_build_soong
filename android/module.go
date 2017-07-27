@@ -108,6 +108,11 @@ type Module interface {
 	InstallInData() bool
 	InstallInSanitizerDir() bool
 	SkipInstall()
+
+	AddProperties(props ...interface{})
+	GetProperties() []interface{}
+
+	BuildParamsForTests() []ModuleBuildParams
 }
 
 type nameProperties struct {
@@ -142,7 +147,7 @@ type commonProperties struct {
 	Proprietary bool
 
 	// vendor who owns this module
-	Owner string
+	Owner *string
 
 	// whether this module is device specific and should be installed into /vendor
 	Vendor bool
@@ -194,24 +199,18 @@ const (
 	NeitherHostNorDeviceSupported
 )
 
-func InitAndroidModule(m Module,
-	propertyStructs ...interface{}) (blueprint.Module, []interface{}) {
-
+func InitAndroidModule(m Module) {
 	base := m.base()
 	base.module = m
 
-	propertyStructs = append(propertyStructs,
+	m.AddProperties(
 		&base.nameProperties,
 		&base.commonProperties,
 		&base.variableProperties)
-
-	return m, propertyStructs
 }
 
-func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib Multilib,
-	propertyStructs ...interface{}) (blueprint.Module, []interface{}) {
-
-	_, propertyStructs = InitAndroidModule(m, propertyStructs...)
+func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib Multilib) {
+	InitAndroidModule(m)
 
 	base := m.base()
 	base.commonProperties.HostOrDeviceSupported = hod
@@ -219,16 +218,11 @@ func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib 
 	base.commonProperties.ArchSpecific = true
 
 	switch hod {
-	case HostAndDeviceSupported:
-		// Default to module to device supported, host not supported, can override in module
-		// properties
-		base.hostAndDeviceProperties.Device_supported = boolPtr(true)
-		fallthrough
-	case HostAndDeviceDefault:
-		propertyStructs = append(propertyStructs, &base.hostAndDeviceProperties)
+	case HostAndDeviceSupported, HostAndDeviceDefault:
+		m.AddProperties(&base.hostAndDeviceProperties)
 	}
 
-	return InitArchModule(m, propertyStructs...)
+	InitArchModule(m)
 }
 
 // A ModuleBase object contains the properties that are common to all Android
@@ -250,7 +244,6 @@ func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib 
 //
 //     import (
 //         "android/soong/android"
-//         "github.com/google/blueprint"
 //     )
 //
 //     type myModule struct {
@@ -260,9 +253,11 @@ func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib 
 //         }
 //     }
 //
-//     func NewMyModule() (blueprint.Module, []interface{}) {
+//     func NewMyModule() android.Module) {
 //         m := &myModule{}
-//         return android.InitAndroidModule(m, &m.properties)
+//         m.AddProperties(&m.properties)
+//         android.InitAndroidModule(m)
+//         return m
 //     }
 //
 //     func (m *myModule) GenerateAndroidBuildActions(ctx android.ModuleContext) {
@@ -274,6 +269,7 @@ func InitAndroidArchModule(m Module, hod HostOrDeviceSupported, defaultMultilib 
 type ModuleBase struct {
 	// Putting the curiously recurring thing pointing to the thing that contains
 	// the thing pattern to good use.
+	// TODO: remove this
 	module Module
 
 	nameProperties          nameProperties
@@ -295,6 +291,23 @@ type ModuleBase struct {
 	blueprintDir     string
 
 	hooks hooks
+
+	registerProps []interface{}
+
+	// For tests
+	buildParams []ModuleBuildParams
+}
+
+func (a *ModuleBase) AddProperties(props ...interface{}) {
+	a.registerProps = append(a.registerProps, props...)
+}
+
+func (a *ModuleBase) GetProperties() []interface{} {
+	return a.registerProps
+}
+
+func (a *ModuleBase) BuildParamsForTests() []ModuleBuildParams {
+	return a.buildParams
 }
 
 // Name returns the name of the module.  It may be overridden by individual module types, for
@@ -354,7 +367,8 @@ func (a *ModuleBase) OsClassSupported() []OsClass {
 		if Bool(a.hostAndDeviceProperties.Host_supported) {
 			supported = append(supported, Host, HostCross)
 		}
-		if Bool(a.hostAndDeviceProperties.Device_supported) {
+		if a.hostAndDeviceProperties.Device_supported == nil ||
+			*a.hostAndDeviceProperties.Device_supported {
 			supported = append(supported, Device)
 		}
 		return supported
@@ -366,7 +380,8 @@ func (a *ModuleBase) OsClassSupported() []OsClass {
 func (a *ModuleBase) DeviceSupported() bool {
 	return a.commonProperties.HostOrDeviceSupported == DeviceSupported ||
 		a.commonProperties.HostOrDeviceSupported == HostAndDeviceSupported &&
-			Bool(a.hostAndDeviceProperties.Device_supported)
+			(a.hostAndDeviceProperties.Device_supported == nil ||
+				*a.hostAndDeviceProperties.Device_supported)
 }
 
 func (a *ModuleBase) Enabled() bool {
@@ -514,6 +529,8 @@ func (a *ModuleBase) GenerateBuildActions(ctx blueprint.ModuleContext) {
 			return
 		}
 	}
+
+	a.buildParams = androidCtx.buildParams
 }
 
 type androidBaseContextImpl struct {
@@ -532,6 +549,9 @@ type androidModuleContext struct {
 	checkbuildFiles Paths
 	missingDeps     []string
 	module          Module
+
+	// For tests
+	buildParams []ModuleBuildParams
 }
 
 func (a *androidModuleContext) ninjaError(desc string, outputs []string, err error) {
@@ -560,6 +580,10 @@ func (a *androidModuleContext) Build(pctx blueprint.PackageContext, params bluep
 }
 
 func (a *androidModuleContext) ModuleBuild(pctx blueprint.PackageContext, params ModuleBuildParams) {
+	if a.config.captureBuild {
+		a.buildParams = append(a.buildParams, params)
+	}
+
 	bparams := blueprint.BuildParams{
 		Rule:            params.Rule,
 		Deps:            params.Deps,

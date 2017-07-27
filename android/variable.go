@@ -140,6 +140,8 @@ type productVariables struct {
 	Treble                     *bool `json:",omitempty"`
 	Pdk                        *bool `json:",omitempty"`
 
+	IntegerOverflowExcludePaths *[]string `json:",omitempty"`
+
 	VendorPath *string `json:",omitempty"`
 
 	ClangTidy  *bool   `json:",omitempty"`
@@ -154,6 +156,7 @@ type productVariables struct {
 
 	SanitizeHost       []string `json:",omitempty"`
 	SanitizeDevice     []string `json:",omitempty"`
+	SanitizeDeviceDiag []string `json:",omitempty"`
 	SanitizeDeviceArch []string `json:",omitempty"`
 
 	ArtUseReadBarrier *bool `json:",omitempty"`
@@ -161,6 +164,8 @@ type productVariables struct {
 	BtConfigIncludeDir *string `json:",omitempty"`
 
 	Override_rs_driver *string `json:",omitempty"`
+
+	DeviceKernelHeaders []string `json:",omitempty"`
 }
 
 func boolPtr(v bool) *bool {

@@ -64,17 +64,20 @@ func (c *Cmd) Start() error {
 
 func (c *Cmd) Run() error {
 	c.prepare()
-	return c.Cmd.Run()
+	err := c.Cmd.Run()
+	return err
 }
 
 func (c *Cmd) Output() ([]byte, error) {
 	c.prepare()
-	return c.Cmd.Output()
+	bytes, err := c.Cmd.Output()
+	return bytes, err
 }
 
 func (c *Cmd) CombinedOutput() ([]byte, error) {
 	c.prepare()
-	return c.Cmd.CombinedOutput()
+	bytes, err := c.Cmd.CombinedOutput()
+	return bytes, err
 }
 
 // StartOrFatal is equivalent to Start, but handles the error with a call to ctx.Fatal

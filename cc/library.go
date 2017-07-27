@@ -108,41 +108,41 @@ func init() {
 
 // Module factory for combined static + shared libraries, device by default but with possible host
 // support
-func libraryFactory() (blueprint.Module, []interface{}) {
+func libraryFactory() android.Module {
 	module, _ := NewLibrary(android.HostAndDeviceSupported)
 	return module.Init()
 }
 
 // Module factory for static libraries
-func libraryStaticFactory() (blueprint.Module, []interface{}) {
+func libraryStaticFactory() android.Module {
 	module, library := NewLibrary(android.HostAndDeviceSupported)
 	library.BuildOnlyStatic()
 	return module.Init()
 }
 
 // Module factory for shared libraries
-func librarySharedFactory() (blueprint.Module, []interface{}) {
+func librarySharedFactory() android.Module {
 	module, library := NewLibrary(android.HostAndDeviceSupported)
 	library.BuildOnlyShared()
 	return module.Init()
 }
 
 // Module factory for host static libraries
-func libraryHostStaticFactory() (blueprint.Module, []interface{}) {
+func libraryHostStaticFactory() android.Module {
 	module, library := NewLibrary(android.HostSupported)
 	library.BuildOnlyStatic()
 	return module.Init()
 }
 
 // Module factory for host shared libraries
-func libraryHostSharedFactory() (blueprint.Module, []interface{}) {
+func libraryHostSharedFactory() android.Module {
 	module, library := NewLibrary(android.HostSupported)
 	library.BuildOnlyShared()
 	return module.Init()
 }
 
 // Module factory for header-only libraries
-func libraryHeaderFactory() (blueprint.Module, []interface{}) {
+func libraryHeaderFactory() android.Module {
 	module, library := NewLibrary(android.HostAndDeviceSupported)
 	library.HeaderOnly()
 	return module.Init()
@@ -156,7 +156,7 @@ type flagExporter struct {
 }
 
 func (f *flagExporter) exportedIncludes(ctx ModuleContext) android.Paths {
-	if ctx.Vendor() && f.Properties.Target.Vendor.Export_include_dirs != nil {
+	if ctx.vndk() && f.Properties.Target.Vendor.Export_include_dirs != nil {
 		return android.PathsForModuleSrc(ctx, f.Properties.Target.Vendor.Export_include_dirs)
 	} else {
 		return android.PathsForModuleSrc(ctx, f.Properties.Export_include_dirs)
@@ -351,7 +351,7 @@ func (library *libraryDecorator) compile(ctx ModuleContext, flags Flags, deps Pa
 		}
 		return Objects{}
 	}
-	if (ctx.createVndkSourceAbiDump() || (library.sabi.Properties.CreateSAbiDumps && ctx.Device())) && !ctx.Vendor() {
+	if ctx.createVndkSourceAbiDump() {
 		exportIncludeDirs := android.PathsForModuleSrc(ctx, library.flagExporter.Properties.Export_include_dirs)
 		var SourceAbiFlags []string
 		for _, dir := range exportIncludeDirs.Strings() {
@@ -589,14 +589,14 @@ func (library *libraryDecorator) linkShared(ctx ModuleContext,
 	objs.sAbiDumpFiles = append(objs.sAbiDumpFiles, deps.WholeStaticLibObjs.sAbiDumpFiles...)
 
 	library.coverageOutputFile = TransformCoverageFilesToLib(ctx, objs, builderFlags, library.getLibName(ctx))
-	library.linkSAbiDumpFiles(ctx, objs, fileName)
+	library.linkSAbiDumpFiles(ctx, objs, fileName, ret)
 
 	return ret
 }
 
-func (library *libraryDecorator) linkSAbiDumpFiles(ctx ModuleContext, objs Objects, fileName string) {
+func (library *libraryDecorator) linkSAbiDumpFiles(ctx ModuleContext, objs Objects, fileName string, soFile android.Path) {
 	//Also take into account object re-use.
-	if len(objs.sAbiDumpFiles) > 0 && ctx.createVndkSourceAbiDump() && !ctx.Vendor() {
+	if len(objs.sAbiDumpFiles) > 0 && ctx.createVndkSourceAbiDump() {
 		refSourceDumpFile := android.PathForVndkRefAbiDump(ctx, "current", fileName, vndkVsNdk(ctx), true)
 		versionScript := android.OptionalPathForModuleSrc(ctx, library.Properties.Version_script)
 		var symbolFile android.OptionalPath
@@ -612,7 +612,7 @@ func (library *libraryDecorator) linkSAbiDumpFiles(ctx ModuleContext, objs Objec
 			SourceAbiFlags = append(SourceAbiFlags, reexportedInclude)
 		}
 		exportedHeaderFlags := strings.Join(SourceAbiFlags, " ")
-		library.sAbiOutputFile = TransformDumpToLinkedDump(ctx, objs.sAbiDumpFiles, symbolFile, "current", fileName, exportedHeaderFlags)
+		library.sAbiOutputFile = TransformDumpToLinkedDump(ctx, objs.sAbiDumpFiles, soFile, symbolFile, "current", fileName, exportedHeaderFlags)
 		if refSourceDumpFile.Valid() {
 			unzippedRefDump := UnzipRefDump(ctx, refSourceDumpFile.Path(), fileName)
 			library.sAbiDiff = SourceAbiDiff(ctx, library.sAbiOutputFile.Path(), unzippedRefDump, fileName)
@@ -699,6 +699,15 @@ func (library *libraryDecorator) toc() android.OptionalPath {
 
 func (library *libraryDecorator) install(ctx ModuleContext, file android.Path) {
 	if library.shared() {
+		if ctx.Device() {
+			if ctx.vndk() {
+				if ctx.isVndkSp() {
+					library.baseInstaller.subDir = "vndk-sp"
+				} else if ctx.isVndk() {
+					library.baseInstaller.subDir = "vndk"
+				}
+			}
+		}
 		library.baseInstaller.install(ctx, file)
 	}
 }

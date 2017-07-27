@@ -13,11 +13,7 @@
 // limitations under the License.
 
 blueprint_go_binary {
-    name: "microfactory",
-    srcs: [
-        "microfactory.go",
-    ],
-    testSrcs: [
-        "microfactory_test.go",
-    ],
+    name: "pom2mk",
+    deps: ["blueprint-proptools"],
+    srcs: ["pom2mk.go"],
 }

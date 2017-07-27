@@ -61,8 +61,6 @@ func (c *androidMkSingleton) GenerateBuildActions(ctx blueprint.SingletonContext
 		return
 	}
 
-	ctx.SetNinjaBuildDir(pctx, filepath.Join(config.buildDir, ".."))
-
 	var androidMkModulesList []Module
 
 	ctx.VisitAllModules(func(module blueprint.Module) {
@@ -246,8 +244,8 @@ func translateAndroidMkModule(ctx blueprint.SingletonContext, w io.Writer, mod b
 		if amod.commonProperties.Vendor {
 			fmt.Fprintln(w, "LOCAL_VENDOR_MODULE := true")
 		}
-		if amod.commonProperties.Owner != "" {
-			fmt.Fprintln(w, "LOCAL_MODULE_OWNER :=", amod.commonProperties.Owner)
+		if amod.commonProperties.Owner != nil {
+			fmt.Fprintln(w, "LOCAL_MODULE_OWNER :=", *amod.commonProperties.Owner)
 		}
 	}
 

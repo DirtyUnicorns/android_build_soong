@@ -20,7 +20,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/google/blueprint"
 	"github.com/google/blueprint/proptools"
 )
 
@@ -491,13 +490,11 @@ func createArchType(props reflect.Type) reflect.Type {
 
 var archPropTypeMap OncePer
 
-func InitArchModule(m Module,
-	propertyStructs ...interface{}) (blueprint.Module, []interface{}) {
+func InitArchModule(m Module) {
 
 	base := m.base()
 
-	base.generalProperties = append(base.generalProperties,
-		propertyStructs...)
+	base.generalProperties = m.GetProperties()
 
 	for _, properties := range base.generalProperties {
 		propertiesValue := reflect.ValueOf(properties)
@@ -524,17 +521,13 @@ func InitArchModule(m Module,
 		}
 	}
 
-	var allProperties []interface{}
-	allProperties = append(allProperties, base.generalProperties...)
 	for _, asp := range base.archProperties {
 		if asp != nil {
-			allProperties = append(allProperties, asp)
+			m.AddProperties(asp)
 		}
 	}
 
-	base.customizableProperties = allProperties
-
-	return m, allProperties
+	base.customizableProperties = m.GetProperties()
 }
 
 var variantReplacer = strings.NewReplacer("-", "_", ".", "_")
@@ -886,10 +879,12 @@ func getMegaDeviceConfig() []archConfig {
 		{"arm", "armv7-a-neon", "denver", []string{"armeabi-v7a"}},
 		{"arm", "armv7-a-neon", "krait", []string{"armeabi-v7a"}},
 		{"arm", "armv7-a-neon", "kryo", []string{"armeabi-v7a"}},
+		{"arm", "armv7-a-neon", "exynos-m2", []string{"armeabi-v7a"}},
 		{"arm64", "armv8-a", "cortex-a53", []string{"arm64-v8a"}},
 		{"arm64", "armv8-a", "cortex-a73", []string{"arm64-v8a"}},
 		{"arm64", "armv8-a", "denver64", []string{"arm64-v8a"}},
 		{"arm64", "armv8-a", "kryo", []string{"arm64-v8a"}},
+		{"arm64", "armv8-a", "exynos-m2", []string{"arm64-v8a"}},
 		{"mips", "mips32-fp", "", []string{"mips"}},
 		{"mips", "mips32r2-fp", "", []string{"mips"}},
 		{"mips", "mips32r2-fp-xburst", "", []string{"mips"}},
