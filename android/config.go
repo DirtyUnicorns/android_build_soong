@@ -481,6 +481,9 @@ func (c *config) LibartImgDeviceBaseAddress() string {
 	if len(c.Targets[Device]) > 0 {
 		archType = c.Targets[Device][0].Arch.ArchType
 	}
+	if *c.ProductVariables.Libart_img_base != "" {
+		return *c.ProductVariables.Libart_img_base
+	}
 	switch archType {
 	default:
 		return "0x70000000"
