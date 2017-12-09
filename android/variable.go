@@ -19,7 +19,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"build/exras/soong/android"
+	"extras/soong/android"
 
 	"github.com/google/blueprint/proptools"
 )
