@@ -150,6 +150,11 @@ type variableProperties struct {
 			Cflags []string
 		}
 
+		Uses_qti_camera_device struct {
+			Cppflags []string
+			Shared_libs []string
+		}
+
 	} `android:"arch_variant"`
 }
 
@@ -362,6 +367,7 @@ type productVariables struct {
 
 	Device_support_hwfde  *bool `json:",omitempty"`
 	Device_support_hwfde_perf  *bool `json:",omitempty"`
+	Uses_qti_camera_device  *bool `json:",omitempty"`
 }
 
 func boolPtr(v bool) *bool {
