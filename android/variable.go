@@ -92,6 +92,11 @@ type variableProperties struct {
 			Cppflags []string
 		}
 
+		Uses_qti_camera_device struct {
+			Cppflags []string
+			Shared_libs []string
+		}
+
 		// treble is true when a build is a Treble compliant device.  This is automatically set when
 		// a build is shipped with Android O, but can be overriden.  This controls such things as
 		// the sepolicy split and enabling the Treble linker namespaces.
@@ -208,6 +213,7 @@ type productVariables struct {
 
 	BoardUsesQCOMHardware *bool `json:",omitempty"`
 	TargetUsesQCOMBsp *bool `json:",omitempty"`
+	Uses_qti_camera_device *bool `json:",omitempty"`
 }
 
 func boolPtr(v bool) *bool {
