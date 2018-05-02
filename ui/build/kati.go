@@ -90,7 +90,8 @@ func runKati(ctx Context, config Config) {
 	args = append(args,
 		"BUILDING_WITH_NINJA=true",
 		"SOONG_ANDROID_MK="+config.SoongAndroidMk(),
-		"SOONG_MAKEVARS_MK="+config.SoongMakeVarsMk())
+		"SOONG_MAKEVARS_MK="+config.SoongMakeVarsMk(),
+		"TARGET_DEVICE_DIR="+config.TargetDeviceDir())
 
 	if config.UseGoma() {
 		args = append(args, "-j"+strconv.Itoa(config.Parallel()))
@@ -189,6 +190,7 @@ func runKatiCleanSpec(ctx Context, config Config) {
 		"-f", "build/make/core/cleanbuild.mk",
 		"BUILDING_WITH_NINJA=true",
 		"SOONG_MAKEVARS_MK=" + config.SoongMakeVarsMk(),
+		"TARGET_DEVICE_DIR=" + config.TargetDeviceDir(),
 	}
 
 	cmd := Command(ctx, config, "ckati", executable, args...)

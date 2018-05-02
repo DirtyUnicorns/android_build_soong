@@ -136,6 +136,9 @@ func runMakeProductConfig(ctx Context, config Config) {
 
 		// To find target/product/<DEVICE>
 		"TARGET_DEVICE",
+
+		// So that later Kati runs can find BoardConfig.mk faster
+		"TARGET_DEVICE_DIR",
 	}, exportEnvVars...), BannerVars...)
 
 	make_vars, err := dumpMakeVars(ctx, config, config.Arguments(), allVars, true)
@@ -159,4 +162,5 @@ func runMakeProductConfig(ctx Context, config Config) {
 	config.SetKatiArgs(strings.Fields(make_vars["KATI_GOALS"]))
 	config.SetNinjaArgs(strings.Fields(make_vars["NINJA_GOALS"]))
 	config.SetTargetDevice(make_vars["TARGET_DEVICE"])
+	config.SetTargetDeviceDir(make_vars["TARGET_DEVICE_DIR"])
 }

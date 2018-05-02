@@ -44,10 +44,11 @@ type configImpl struct {
 	skipMake   bool
 
 	// From the product config
-	katiArgs     []string
-	ninjaArgs    []string
-	katiSuffix   string
-	targetDevice string
+	katiArgs        []string
+	ninjaArgs       []string
+	katiSuffix      string
+	targetDevice    string
+	targetDeviceDir string
 }
 
 const srcDirFileCheck = "build/soong/root.bp"
@@ -555,4 +556,12 @@ func (c *configImpl) PrebuiltBuildTool(name string) string {
 		}
 	}
 	return filepath.Join("prebuilts/build-tools", c.HostPrebuiltTag(), "bin", name)
+}
+
+func (c *configImpl) SetTargetDeviceDir(dir string) {
+	c.targetDeviceDir = dir
+}
+
+func (c *configImpl) TargetDeviceDir() string {
+	return c.targetDeviceDir
 }
