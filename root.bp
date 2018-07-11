@@ -6,7 +6,6 @@ build = [
 
 subdirs = [
     "build/soong",
-    "vendor/extras/soong",
 ]
 
 optional_subdirs = [
@@ -35,7 +34,6 @@ optional_subdirs = [
     "system/tools/*",
     "test/vts",
     "test/vts-testcase/*",
-    "vendor/*",
     "vendor/*/*",
     "vendor/*/*/*",
     "vendor/*/*/*/*/*",
