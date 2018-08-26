@@ -115,6 +115,10 @@ type variableProperties struct {
 			Srcs         []string
 		}
 
+		Additional_gralloc_10_usage_bits struct {
+			Cppflags []string
+		}
+
 		Needs_text_relocations struct {
 			Cppflags []string
 		}
@@ -251,6 +255,8 @@ type productVariables struct {
 	PgoAdditionalProfileDirs []string `json:",omitempty"`
 
 	VendorVars map[string]map[string]string `json:",omitempty"`
+
+	Additional_gralloc_10_usage_bits  *string `json:",omitempty"`
 
 	Needs_text_relocations     *bool `json:",omitempty"`
 	Has_legacy_mmap            *bool `json:",omitempty"`
