@@ -173,6 +173,7 @@ type moduleInstallPathContextImpl struct {
 	androidBaseContextImpl
 
 	inData         bool
+	inTestcases    bool
 	inSanitizerDir bool
 	inRecovery     bool
 }
@@ -189,6 +190,10 @@ func (moduleInstallPathContextImpl) AddNinjaFileDeps(deps ...string) {}
 
 func (m moduleInstallPathContextImpl) InstallInData() bool {
 	return m.inData
+}
+
+func (m moduleInstallPathContextImpl) InstallInTestcases() bool {
+	return m.inTestcases
 }
 
 func (m moduleInstallPathContextImpl) InstallInSanitizerDir() bool {
